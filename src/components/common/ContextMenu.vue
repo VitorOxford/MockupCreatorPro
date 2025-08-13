@@ -8,8 +8,13 @@ const adjustmentsStore = useImageAdjustmentsStore()
 
 const isLassoSelectionActive = computed(() => store.workspace.lasso.points.length > 2)
 
+const canMergeDown = computed(() => {
+    if (!store.workspace.contextMenuTargetLayerId) return false;
+    const index = store.layers.findIndex(l => l.id === store.workspace.contextMenuTargetLayerId);
+    return index > 0; // Pode mesclar se não for a primeira camada (índice 0)
+});
+
 function onClick(action) {
-  // A ação agora recebe o ID correto diretamente do template.
   action()
   store.showContextMenu(false)
 }
@@ -26,6 +31,9 @@ function onClick(action) {
     <ul>
       <li @click="onClick(() => store.duplicateLayer(store.workspace.contextMenuTargetLayerId))">
         Duplicar Camada
+      </li>
+      <li :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(store.workspace.contextMenuTargetLayerId))">
+        Mesclar para Baixo
       </li>
       <li class="divider"></li>
       <li

@@ -20,6 +20,9 @@ let isPanning = false
 let isDraggingLayer = false
 let isTransformingLayer = false
 let isDrawingSelection = false
+let isPainting = false
+let isErasing = false // NOVO
+let currentStroke = [] // Renomeado de currentPaintStroke
 let transformType = null
 let dragStartOffset = { x: 0, y: 0 }
 let lastPanPosition = { x: 0, y: 0 }
@@ -244,17 +247,54 @@ function handleKeyDown(e) {
 function handleMouseDown(e) {
   if (store.workspace.isContextMenuVisible) store.showContextMenu(false)
   if (store.workspace.isSelectionContextMenuVisible) store.showSelectionContextMenu(false)
-
   if (e.button !== 0) return
+
   const mouse = { x: e.offsetX, y: e.offsetY }
+  const worldMouse = screenToWorkspaceCoords(mouse)
+
+  if (store.activeTool === 'brush') {
+    if (!store.selectedLayer) {
+      alert('Selecione uma camada para pintar.')
+      return
+    }
+    const layerCoords = screenToLayerCoords(mouse, store.selectedLayer, true)
+
+    if (store.paintTool === 'brush') {
+      isPainting = true
+      currentStroke = [layerCoords]
+      store.applyPaintToLayer(currentStroke)
+    } else if (store.paintTool === 'bucket') {
+      store.floodFillLayer(layerCoords.x, layerCoords.y)
+    } else if (store.paintTool === 'eyedropper') {
+      const pixel = ctx.getImageData(mouse.x, mouse.y, 1, 1).data
+      const hex = "#" + ("000000" + ((pixel[0] << 16) | (pixel[1] << 8) | pixel[2]).toString(16)).slice(-6);
+      store.setPrimaryColor(hex)
+      store.setPaintTool('brush')
+    }
+    return
+  }
+
+  // NOVO: Lógica da borracha
+  if (store.activeTool === 'eraser') {
+    if (!store.selectedLayer) {
+      alert('Selecione uma camada para apagar.');
+      return;
+    }
+    isErasing = true;
+    const layerCoords = screenToLayerCoords(mouse, store.selectedLayer, true);
+    currentStroke = [layerCoords];
+    store.eraseFromLayer(currentStroke);
+    return;
+  }
+
   if (store.activeTool === 'rect-select') {
     isDrawingSelection = true
-    store.startSelection(mouse)
+    store.startSelection(worldMouse)
     return
   }
   if (store.activeTool === 'lasso-select') {
     isDrawingSelection = true
-    store.startLasso(mouse)
+    store.startLasso(worldMouse)
     return
   }
   const clickedLayer = getLayerAtPosition(mouse)
@@ -269,9 +309,28 @@ function handleMouseDown(e) {
   lastPanPosition = { x: e.clientX, y: e.clientY }
   canvasRef.value.style.cursor = 'grabbing'
 }
+
 function handleMouseMove(e) {
   const mouse = { x: e.clientX, y: e.clientY }
   const canvasMouse = { x: e.offsetX, y: e.offsetY }
+  const worldMouse = screenToWorkspaceCoords(canvasMouse)
+
+  if (isPainting && store.paintTool === 'brush' && store.selectedLayer) {
+    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer, true)
+    currentStroke.push(layerCoords);
+    const lastTwoPoints = currentStroke.slice(-2);
+    store.applyPaintToLayer(lastTwoPoints);
+    return;
+  }
+
+  // NOVO: Lógica da borracha
+  if (isErasing && store.selectedLayer) {
+    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer, true);
+    currentStroke.push(layerCoords);
+    const lastTwoPoints = currentStroke.slice(-2);
+    store.eraseFromLayer(lastTwoPoints);
+    return;
+  }
 
   if (isTransformingLayer) {
     if (transformType === 'rotate') {
@@ -287,15 +346,14 @@ function handleMouseMove(e) {
   }
 
   if (isDrawingSelection) {
-    if (store.activeTool === 'rect-select') store.updateSelection(canvasMouse)
-    if (store.activeTool === 'lasso-select') store.updateLasso(canvasMouse)
+    if (store.activeTool === 'rect-select') store.updateSelection(worldMouse)
+    if (store.activeTool === 'lasso-select') store.updateLasso(worldMouse)
     return
   }
 
   if (isDraggingLayer && store.selectedLayer) {
-    const workspaceCoords = screenToWorkspaceCoords(canvasMouse)
-    const newX = workspaceCoords.x - dragStartOffset.x / store.selectedLayer.scale
-    const newY = workspaceCoords.y - dragStartOffset.y / store.selectedLayer.scale
+    const newX = worldMouse.x - dragStartOffset.x
+    const newY = worldMouse.y - dragStartOffset.y
     store.updateLayerProperties(store.selectedLayer.id, { x: newX, y: newY })
     return
   }
@@ -307,22 +365,34 @@ function handleMouseMove(e) {
   }
 }
 function handleMouseUp(e) {
-  const mousePosition = { x: e.clientX, y: e.clientY }
+  const mousePosition = { x: e.clientX, y: e.clientY };
   if (isDrawingSelection) {
     if (store.activeTool === 'rect-select') store.endSelection(mousePosition)
     if (store.activeTool === 'lasso-select') store.endLasso(mousePosition)
+  }
+  if (isPainting || isErasing) {
+    isPainting = false;
+    isErasing = false;
+    currentStroke = [];
   }
   isPanning = false
   isDraggingLayer = false
   isTransformingLayer = false
   isDrawingSelection = false
   document.body.style.cursor = 'default'
+
+  const cursorMap = {
+    'rect-select': 'crosshair',
+    'lasso-select': 'crosshair',
+    brush: 'crosshair',
+    eraser: 'crosshair',
+    move: 'grab',
+  }
   if (canvasRef.value) {
-    canvasRef.value.style.cursor = ['rect-select', 'lasso-select'].includes(store.activeTool)
-      ? 'crosshair'
-      : 'grab'
+     canvasRef.value.style.cursor = cursorMap[store.activeTool] || 'default'
   }
 }
+
 function handleWheel(e) {
   e.preventDefault()
   if (store.workspace.viewMode === 'preview') return
@@ -342,14 +412,24 @@ function screenToWorkspaceCoords(screenCoords) {
   const { pan, zoom } = store.workspace
   return { x: (screenCoords.x - pan.x) / zoom, y: (screenCoords.y - pan.y) / zoom }
 }
-function screenToLayerCoords(screenCoords, layer) {
-  const workspaceCoords = screenToWorkspaceCoords(screenCoords)
-  const cos = Math.cos(-layer.rotation)
-  const sin = Math.sin(-layer.rotation)
-  const dx = workspaceCoords.x - layer.x
-  const dy = workspaceCoords.y - layer.y
-  return { x: dx * cos - dy * sin, y: dx * sin + dy * cos }
+
+function screenToLayerCoords(screenCoords, layer, isPaint = false) {
+  const workspaceCoords = screenToWorkspaceCoords(screenCoords);
+  const dx = workspaceCoords.x - layer.x;
+  const dy = workspaceCoords.y - layer.y;
+
+  const cos = Math.cos(-layer.rotation);
+  const sin = Math.sin(-layer.rotation);
+
+  const rotatedX = (dx * cos - dy * sin) / layer.scale;
+  const rotatedY = (dx * sin + dy * cos) / layer.scale;
+
+  return {
+    x: rotatedX + (isPaint ? layer.metadata.originalWidth / 2 : 0),
+    y: rotatedY + (isPaint ? layer.metadata.originalHeight / 2 : 0),
+  };
 }
+
 function getLayerScreenCenter(layer) {
   const { pan, zoom } = store.workspace
   return { x: layer.x * zoom + pan.x, y: layer.y * zoom + pan.y }
@@ -358,9 +438,12 @@ function getLayerAtPosition(screenCoords) {
   for (let i = store.layers.length - 1; i >= 0; i--) {
     const layer = store.layers[i]
     if (!layer.image || !layer.visible) continue
-    const layerCoords = screenToLayerCoords(screenCoords, layer)
-    const halfW = (layer.metadata.originalWidth * layer.scale) / 2
-    const halfH = (layer.metadata.originalHeight * layer.scale) / 2
+
+    const layerCoords = screenToLayerCoords(screenCoords, layer, false);
+
+    const halfW = layer.metadata.originalWidth / 2;
+    const halfH = layer.metadata.originalHeight / 2;
+
     if (
       layerCoords.x >= -halfW &&
       layerCoords.x <= halfW &&
@@ -376,18 +459,25 @@ watch(
   () => store.activeTool,
   (newTool) => {
     if (canvasRef.value) {
-      if (['rect-select', 'lasso-select'].includes(newTool)) {
-        canvasRef.value.style.cursor = 'crosshair'
-      } else if (newTool === 'move') {
-        canvasRef.value.style.cursor = 'grab'
-      } else {
-        canvasRef.value.style.cursor = 'default'
+       const cursorMap = {
+        'rect-select': 'crosshair',
+        'lasso-select': 'crosshair',
+        brush: 'crosshair',
+        eraser: 'crosshair',
+        move: 'grab',
       }
+      canvasRef.value.style.cursor = cursorMap[newTool] || 'default'
     }
   },
 )
+
 watch(
-  () => [store.layers, store.workspace],
+  () => [
+    store.layers.map(l => l.version),
+    store.workspace.zoom,
+    store.workspace.pan,
+    store.layers,
+  ],
   () => {
     requestAnimationFrame(renderCanvas)
   },

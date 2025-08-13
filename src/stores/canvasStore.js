@@ -11,6 +11,20 @@ export const useCanvasStore = defineStore('canvas', () => {
   const layers = ref([])
   const selectedLayerId = ref(null)
   const activeTool = ref('move')
+  const paintTool = ref('brush') // 'brush', 'eraser', 'bucket', 'eyedropper'
+  const primaryColor = ref('#000000')
+
+  const brush = reactive({
+    size: 20,
+    opacity: 1,
+    hardness: 0.9,
+  })
+
+  // NOVO: Estado para a borracha
+  const eraser = reactive({
+    size: 40,
+    opacity: 1, // Intensidade
+  })
 
   const copiedSelection = ref(null)
 
@@ -57,6 +71,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     isResizeModalVisible: false,
     isPreviewSidebarVisible: false,
     isSignatureModalVisible: false,
+    isBrushSidebarVisible: false,
   })
 
   const selectedLayer = computed(() => layers.value.find((l) => l.id === selectedLayerId.value))
@@ -113,6 +128,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         flipH: false,
         flipV: false,
       },
+      version: 1,
     })
   }
 
@@ -131,22 +147,22 @@ export const useCanvasStore = defineStore('canvas', () => {
       const imageWidth = metadata.originalWidth || img.naturalWidth
       const imageHeight = metadata.originalHeight || img.naturalHeight
 
+      const renderCanvas = document.createElement('canvas')
+      renderCanvas.width = imageWidth
+      renderCanvas.height = imageHeight
+      renderCanvas.getContext('2d').drawImage(img, 0, 0)
+
       if (imageWidth > MAX_RENDER_SIZE || imageHeight > MAX_RENDER_SIZE) {
         const ratio = Math.min(MAX_RENDER_SIZE / imageWidth, MAX_RENDER_SIZE / imageHeight)
         const proxyCanvas = document.createElement('canvas')
         proxyCanvas.width = imageWidth * ratio
         proxyCanvas.height = imageHeight * ratio
-        const proxyCtx = proxyCanvas.getContext('2d')
-        proxyCtx.drawImage(img, 0, 0, proxyCanvas.width, proxyCanvas.height)
+        proxyCanvas.getContext('2d').drawImage(img, 0, 0, proxyCanvas.width, proxyCanvas.height)
         newLayer.image = proxyCanvas
-        newLayer.fullResImage = img
+        newLayer.fullResImage = renderCanvas
       } else {
-        const renderCanvas = document.createElement('canvas')
-        renderCanvas.width = imageWidth
-        renderCanvas.height = imageHeight
-        renderCanvas.getContext('2d').drawImage(img, 0, 0)
         newLayer.image = renderCanvas
-        newLayer.fullResImage = img
+        newLayer.fullResImage = renderCanvas
       }
 
       newLayer.metadata.originalWidth = imageWidth
@@ -157,13 +173,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         workspace.document.height = imageHeight
       }
 
-      if (initialPosition) {
-        newLayer.x = initialPosition.x
-        newLayer.y = initialPosition.y
-      } else {
-        newLayer.x = workspace.document.width / 2
-        newLayer.y = workspace.document.height / 2
-      }
+      newLayer.x = initialPosition ? initialPosition.x : workspace.document.width / 2
+      newLayer.y = initialPosition ? initialPosition.y : workspace.document.height / 2
 
       layers.value.push(newLayer)
       selectLayer(newLayer.id)
@@ -171,6 +182,138 @@ export const useCanvasStore = defineStore('canvas', () => {
         frameLayer(newLayer.id)
       }
     }
+  }
+
+  function applyPaintToLayer(points) {
+    if (!selectedLayer.value || !selectedLayer.value.image) return
+    const layer = selectedLayer.value
+    const ctx = layer.image.getContext('2d')
+
+    ctx.save()
+    ctx.globalAlpha = brush.opacity
+    ctx.strokeStyle = primaryColor.value
+    ctx.lineWidth = brush.size
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.fillStyle = primaryColor.value
+
+    ctx.beginPath();
+    if (points.length > 1) {
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        const midPoint = { x: (points[i-1].x + points[i].x) / 2, y: (points[i-1].y + points[i].y) / 2 };
+        ctx.quadraticCurveTo(points[i-1].x, points[i-1].y, midPoint.x, midPoint.y);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      ctx.stroke();
+    } else if (points.length === 1) {
+        ctx.arc(points[0].x, points[0].y, brush.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore()
+
+    layer.version++
+  }
+
+  // NOVA AÇÃO: Apagar da camada
+  function eraseFromLayer(points) {
+    if (!selectedLayer.value || !selectedLayer.value.image) return
+    const layer = selectedLayer.value
+    const ctx = layer.image.getContext('2d')
+
+    ctx.save()
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.globalAlpha = eraser.opacity
+    ctx.strokeStyle = 'rgba(0,0,0,1)'
+    ctx.lineWidth = eraser.size
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+
+    ctx.beginPath();
+    if (points.length > 1) {
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+    } else if (points.length === 1) {
+        ctx.arc(points[0].x, points[0].y, eraser.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore()
+
+    layer.version++
+  }
+
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result
+      ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16),
+        }
+      : null
+  }
+
+  function floodFillLayer(startX, startY, tolerance = 30) {
+    if (!selectedLayer.value || !selectedLayer.value.image) return
+    const layer = selectedLayer.value
+    const canvas = layer.image
+    const ctx = canvas.getContext('2d')
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const { data } = imageData
+    const { width, height } = canvas
+
+    startX = Math.floor(startX)
+    startY = Math.floor(startY)
+
+    const startIndex = (startY * width + startX) * 4
+    const startR = data[startIndex]
+    const startG = data[startIndex + 1]
+    const startB = data[startIndex + 2]
+
+    const fillColor = hexToRgb(primaryColor.value)
+    if (!fillColor) return
+
+    if (
+      fillColor.r === startR &&
+      fillColor.g === startG &&
+      fillColor.b === startB
+    ) {
+      return
+    }
+
+    const pixelStack = [[startX, startY]]
+
+    while (pixelStack.length) {
+      const [x, y] = pixelStack.pop()
+      let currentIndex = (y * width + x) * 4
+
+      if (y < 0 || y >= height || x < 0 || x >= width) continue
+
+      const r = data[currentIndex]
+      const g = data[currentIndex + 1]
+      const b = data[currentIndex + 2]
+
+      const colorDistance = Math.sqrt(
+        (r - startR) ** 2 + (g - startG) ** 2 + (b - startB) ** 2
+      )
+
+      if (colorDistance <= tolerance && data[currentIndex + 3] > 0) {
+        data[currentIndex] = fillColor.r
+        data[currentIndex + 1] = fillColor.g
+        data[currentIndex + 2] = fillColor.b
+        data[currentIndex + 3] = 255 * brush.opacity
+
+        pixelStack.push([x + 1, y])
+        pixelStack.push([x - 1, y])
+        pixelStack.push([x, y + 1])
+        pixelStack.push([x, y - 1])
+      }
+    }
+    ctx.putImageData(imageData, 0, 0)
+    layer.version++
   }
 
   async function getLayerBlob(layer) {
@@ -191,15 +334,11 @@ export const useCanvasStore = defineStore('canvas', () => {
     return null
   }
 
-  function calculateAndUpdateDimensions(widthInScreenPx, heightInScreenPx) {
+  function calculateAndUpdateDimensions(widthInWorld, heightInWorld) {
     const selection = workspace.selection
-    const scaleFactor =
-      workspace.viewMode === 'edit' ? workspace.zoom : workspace.previewRenderScale
-    if (scaleFactor === 0) return
-    const selectionPxW = widthInScreenPx / scaleFactor
-    const selectionPxH = heightInScreenPx / scaleFactor
-    selection.dimPxW = selectionPxW
-    selection.dimPxH = selectionPxH
+    selection.dimPxW = widthInWorld
+    selection.dimPxH = heightInWorld
+
     if (!mockupLayer.value || !mockupLayer.value.metadata.dpi) {
       selection.dimCmW = 0
       selection.dimCmH = 0
@@ -210,31 +349,23 @@ export const useCanvasStore = defineStore('canvas', () => {
     const totalMockupPxH = metadata.originalHeight * scale
     const totalMockupCmW = (totalMockupPxW / metadata.dpi) * 2.54
     const totalMockupCmH = (totalMockupPxH / metadata.dpi) * 2.54
-    if (totalMockupPxW > 0) {
-      selection.dimCmW = (selectionPxW / totalMockupPxW) * totalMockupCmW
-    } else {
-      selection.dimCmW = 0
-    }
-    if (totalMockupPxH > 0) {
-      selection.dimCmH = (selectionPxH / totalMockupPxH) * totalMockupCmH
-    } else {
-      selection.dimCmH = 0
-    }
+
+    selection.dimCmW = totalMockupPxW > 0 ? (widthInWorld / totalMockupPxW) * totalMockupCmW : 0
+    selection.dimCmH = totalMockupPxH > 0 ? (heightInWorld / totalMockupPxH) * totalMockupCmH : 0
   }
-  function startLasso(point) {
+
+  function startLasso(worldPoint) {
     workspace.lasso.active = true
-    workspace.lasso.points = [point]
-    workspace.lasso.boundingBox = { x: point.x, y: point.y, width: 0, height: 0 }
+    workspace.lasso.points = [worldPoint]
+    workspace.lasso.boundingBox = { x: worldPoint.x, y: worldPoint.y, width: 0, height: 0 }
     calculateAndUpdateDimensions(0, 0)
   }
-  function updateLasso(point) {
+
+  function updateLasso(worldPoint) {
     if (!workspace.lasso.active) return
-    workspace.lasso.points.push(point)
+    workspace.lasso.points.push(worldPoint)
     const { points } = workspace.lasso
-    let minX = points[0].x
-    let maxX = points[0].x
-    let minY = points[0].y
-    let maxY = points[0].y
+    let minX = points[0].x, maxX = points[0].x, minY = points[0].y, maxY = points[0].y
     for (let i = 1; i < points.length; i++) {
       minX = Math.min(minX, points[i].x)
       maxX = Math.max(maxX, points[i].x)
@@ -245,29 +376,33 @@ export const useCanvasStore = defineStore('canvas', () => {
     workspace.lasso.boundingBox = bbox
     calculateAndUpdateDimensions(bbox.width, bbox.height)
   }
+
   function endLasso(mousePosition) {
     workspace.lasso.active = false
     if (workspace.viewMode === 'edit' && workspace.lasso.points.length > 2) {
       showSelectionContextMenu(true, mousePosition)
     }
   }
-  function startSelection(mouse) {
+
+  function startSelection(worldMouse) {
     workspace.selection.active = true
-    workspace.selection.startX = mouse.x
-    workspace.selection.startY = mouse.y
-    workspace.selection.endX = mouse.x
-    workspace.selection.endY = mouse.y
-    updateSelection(mouse)
+    workspace.selection.startX = worldMouse.x
+    workspace.selection.startY = worldMouse.y
+    workspace.selection.endX = worldMouse.x
+    workspace.selection.endY = worldMouse.y
+    updateSelection(worldMouse)
   }
-  function updateSelection(mouse) {
+
+  function updateSelection(worldMouse) {
     if (!workspace.selection.active) return
     const sel = workspace.selection
-    sel.endX = mouse.x
-    sel.endY = mouse.y
+    sel.endX = worldMouse.x
+    sel.endY = worldMouse.y
     sel.width = Math.abs(sel.startX - sel.endX)
     sel.height = Math.abs(sel.startY - sel.endY)
     calculateAndUpdateDimensions(sel.width, sel.height)
   }
+
   function endSelection(mousePosition) {
     workspace.selection.active = false
     if (workspace.viewMode === 'edit' && workspace.selection.width > 0 && workspace.selection.height > 0) {
@@ -447,6 +582,12 @@ export const useCanvasStore = defineStore('canvas', () => {
     if (!tool || !tool.includes('select')) {
       clearSelection()
     }
+    const isPaintTool = tool === 'brush' || tool === 'eraser'
+    if (isPaintTool && !workspace.isBrushSidebarVisible) {
+      workspace.isBrushSidebarVisible = true
+    } else if (!isPaintTool && workspace.isBrushSidebarVisible) {
+      workspace.isBrushSidebarVisible = false
+    }
   }
   function updateWorkspace(properties) {
     Object.assign(workspace, properties)
@@ -482,6 +623,11 @@ export const useCanvasStore = defineStore('canvas', () => {
     const sourceLayer = layers.value.find((l) => l.id === layerId)
     if (!sourceLayer) return
 
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = sourceLayer.image.width;
+    newCanvas.height = sourceLayer.image.height;
+    newCanvas.getContext('2d').drawImage(sourceLayer.image, 0, 0);
+
     const newLayerData = reactive({
       id: uuidv4(),
       name: `${sourceLayer.name} Cópia`,
@@ -495,9 +641,10 @@ export const useCanvasStore = defineStore('canvas', () => {
       rotation: sourceLayer.rotation,
       metadata: JSON.parse(JSON.stringify(sourceLayer.metadata)),
       adjustments: JSON.parse(JSON.stringify(sourceLayer.adjustments)),
-      image: sourceLayer.image,
+      image: newCanvas,
       fullResImage: sourceLayer.fullResImage,
       originalFile: sourceLayer.originalFile,
+      version: 1,
     })
 
     const sourceIndex = layers.value.findIndex((l) => l.id === layerId)
@@ -505,10 +652,45 @@ export const useCanvasStore = defineStore('canvas', () => {
     selectLayer(newLayerData.id)
   }
 
+  // NOVA AÇÃO: Mesclar Camadas
+  function mergeDown(layerId) {
+    const topLayerIndex = layers.value.findIndex(l => l.id === layerId);
+    if (topLayerIndex <= 0) return; // Não pode mesclar a camada base
+
+    const topLayer = layers.value[topLayerIndex];
+    const bottomLayer = layers.value[topLayerIndex - 1];
+
+    const bottomCtx = bottomLayer.image.getContext('2d');
+
+    // Desenha a camada de cima na camada de baixo, respeitando transformações
+    bottomCtx.save();
+    bottomCtx.globalAlpha = topLayer.opacity;
+
+    // A transformação é relativa da camada de cima para a de baixo
+    const relativeX = (topLayer.x - bottomLayer.x) / bottomLayer.scale + (bottomLayer.metadata.originalWidth/2);
+    const relativeY = (topLayer.y - bottomLayer.y) / bottomLayer.scale + (bottomLayer.metadata.originalHeight/2);
+    const relativeScale = topLayer.scale / bottomLayer.scale;
+    const relativeRotation = topLayer.rotation - bottomLayer.rotation;
+
+    bottomCtx.translate(relativeX, relativeY);
+    bottomCtx.rotate(relativeRotation);
+    bottomCtx.scale(relativeScale, relativeScale);
+
+    bottomCtx.drawImage(
+      topLayer.image,
+      -topLayer.metadata.originalWidth / 2,
+      -topLayer.metadata.originalHeight / 2
+    );
+    bottomCtx.restore();
+
+    bottomLayer.version++;
+    deleteLayer(layerId);
+    selectLayer(bottomLayer.id);
+  }
+
   function createImageFromSelection(sourceLayer, deleteFromOriginal = false) {
     if (!sourceLayer || !isSelectionActive.value) return null
 
-    const { pan, zoom } = workspace
     const sourceImage = sourceLayer.fullResImage || sourceLayer.image
 
     const path = new Path2D()
@@ -528,8 +710,9 @@ export const useCanvasStore = defineStore('canvas', () => {
       maxY = -Infinity
 
     selectionPoints.forEach((p, index) => {
-      const workspaceX = (p.x - pan.x) / zoom
-      const workspaceY = (p.y - pan.y) / zoom
+      const workspaceX = p.x
+      const workspaceY = p.y
+
       const cos = Math.cos(-sourceLayer.rotation)
       const sin = Math.sin(-sourceLayer.rotation)
       const dx = (workspaceX - sourceLayer.x) / sourceLayer.scale
@@ -568,6 +751,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         originalCtx.globalCompositeOperation = 'destination-out'
         originalCtx.fill(path)
         originalCtx.restore()
+        sourceLayer.version++
       }
     }
 
@@ -643,6 +827,22 @@ export const useCanvasStore = defineStore('canvas', () => {
     clearSelection()
   }
 
+  function setPaintTool(tool) {
+    paintTool.value = tool
+  }
+  function setBrushOption(option, value) {
+    brush[option] = value
+  }
+  function setEraserOption(option, value) {
+    eraser[option] = value
+  }
+  function setPrimaryColor(color) {
+    primaryColor.value = color
+  }
+  function toggleBrushSidebar() {
+    workspace.isBrushSidebarVisible = !workspace.isBrushSidebarVisible
+  }
+
   return {
     layers,
     selectedLayerId,
@@ -653,6 +853,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     rulerSource,
     isSelectionActive,
     copiedSelection,
+    paintTool,
+    primaryColor,
+    brush,
+    eraser,
     setRulerUnit,
     togglePreviewInteractivity,
     setPreviewZoom,
@@ -694,5 +898,14 @@ export const useCanvasStore = defineStore('canvas', () => {
     pasteSelection,
     duplicateSelection,
     cutoutSelection,
+    applyPaintToLayer,
+    floodFillLayer,
+    setPaintTool,
+    setBrushOption,
+    setEraserOption,
+    setPrimaryColor,
+    toggleBrushSidebar,
+    eraseFromLayer,
+    mergeDown,
   }
 })

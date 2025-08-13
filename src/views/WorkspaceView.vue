@@ -11,15 +11,14 @@ import { useCanvasStore } from '@/stores/canvasStore'
 import { ref, computed } from 'vue'
 
 import ContextMenu from '@/components/common/ContextMenu.vue'
-// NOVO: Importa o novo menu de contexto
 import SelectionContextMenu from '@/components/common/SelectionContextMenu.vue'
 import ResizeModal from '@/components/modals/ResizeModal.vue'
 import PreviewSidebar from '@/components/preview/PreviewSidebar.vue'
 import SignatureModal from '@/components/modals/SignatureModal.vue'
+import BrushSidebar from '@/components/layout/BrushSidebar.vue'
 
 const store = useCanvasStore()
 const toolControlsPosition = ref({ top: 0, left: 0, visible: false })
-// NOVO: Referência para a barra de ferramentas
 const toolsSidebarRef = ref(null)
 
 function updateToolControls(position) {
@@ -47,7 +46,6 @@ function handleWrapperClick() {
   if (store.workspace.isContextMenuVisible) {
     store.showContextMenu(false)
   }
-  // NOVO: Fecha a gaveta de ferramentas se estiver persistente
   if (toolsSidebarRef.value) {
     toolsSidebarRef.value.closeDrawer()
   }
@@ -57,7 +55,7 @@ function handleWrapperClick() {
 <template>
   <div
     class="workspace-layout"
-    :class="{ 'preview-mode': store.workspace.viewMode === 'preview' }"
+    :class="{ 'preview-mode': store.workspace.viewMode === 'preview', 'brush-mode': store.workspace.isBrushSidebarVisible }"
     @click="handleWrapperClick"
   >
     <AppHeader />
@@ -68,6 +66,8 @@ function handleWrapperClick() {
       :mode="store.workspace.viewMode"
       @show-controls="updateToolControls"
     />
+
+    <BrushSidebar v-if="store.workspace.isBrushSidebarVisible" />
 
     <main class="canvas-container">
       <div v-if="store.workspace.viewMode === 'edit'" class="edit-mode-wrapper">
@@ -119,6 +119,15 @@ function handleWrapperClick() {
     'tools  canvas layers';
   position: relative;
 }
+
+.workspace-layout.brush-mode {
+  grid-template-columns: var(--sidebar-width) 280px 1fr var(--assets-width);
+   grid-template-areas:
+    'header header header header'
+    'top-menu top-menu top-menu top-menu'
+    'tools brush-sidebar canvas layers';
+}
+
 .workspace-layout.preview-mode {
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--header-height) 40px 1fr;
@@ -128,20 +137,15 @@ function handleWrapperClick() {
     'tools  canvas';
 }
 
-.app-header {
-  grid-area: header;
-}
-.tools-sidebar {
-  grid-area: tools;
-}
-.canvas-container {
-  grid-area: canvas;
-}
-.layers-panel {
-  grid-area: layers;
-}
+.app-header { grid-area: header; }
+.top-menu-bar { grid-area: top-menu; }
+.tools-sidebar { grid-area: tools; }
+.brush-sidebar { grid-area: brush-sidebar; }
+.canvas-container { grid-area: canvas; }
+.layers-panel { grid-area: layers; }
 
 .tools-sidebar,
+.brush-sidebar,
 .canvas-container,
 .layers-panel {
   height: calc(100vh - var(--header-height) - 40px);

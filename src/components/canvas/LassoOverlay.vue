@@ -5,13 +5,18 @@ import { useCanvasStore } from '@/stores/canvasStore'
 const store = useCanvasStore()
 
 const isVisible = computed(() => {
-  return store.activeTool === 'lasso-select' && store.workspace.lasso.active
+  return store.workspace.lasso.points.length > 0 && store.workspace.viewMode === 'edit'
 })
 
-// Constrói a string de pontos para o polígono SVG
+// MODIFICADO: Converte os pontos do "mundo" para a tela antes de renderizar
 const pointsString = computed(() => {
   if (!store.workspace.lasso.points.length) return ''
-  return store.workspace.lasso.points.map((p) => `${p.x},${p.y}`).join(' ')
+
+  const { pan, zoom } = store.workspace
+
+  return store.workspace.lasso.points
+    .map((p) => `${p.x * zoom + pan.x},${p.y * zoom + pan.y}`)
+    .join(' ')
 })
 </script>
 

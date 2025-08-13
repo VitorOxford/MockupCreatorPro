@@ -5,16 +5,18 @@ import { useCanvasStore } from '@/stores/canvasStore'
 const store = useCanvasStore()
 
 const isVisible = computed(() => {
-  // Mostra o overlay se qualquer uma das ferramentas de seleção estiver ativa
-  return store.workspace.selection.active || store.workspace.lasso.active
+  return (store.workspace.selection.active || store.workspace.lasso.active) && store.workspace.viewMode === 'edit'
 })
 
+// MODIFICADO: Converte as coordenadas do "mundo" para a tela antes de renderizar
 const selectionStyle = computed(() => {
   const sel = store.workspace.selection
-  const x = Math.min(sel.startX, sel.endX)
-  const y = Math.min(sel.startY, sel.endY)
-  const width = sel.width
-  const height = sel.height
+  const { pan, zoom } = store.workspace
+
+  const x = Math.min(sel.startX, sel.endX) * zoom + pan.x
+  const y = Math.min(sel.startY, sel.endY) * zoom + pan.y
+  const width = sel.width * zoom
+  const height = sel.height * zoom
 
   return {
     transform: `translate(${x}px, ${y}px)`,
@@ -23,20 +25,22 @@ const selectionStyle = computed(() => {
   }
 })
 
+// MODIFICADO: Converte as coordenadas do "mundo" para a tela antes de renderizar
 const tooltipStyle = computed(() => {
-  // Posiciona o tooltip de acordo com a ferramenta ativa
-  if (store.activeTool === 'rect-select') {
+  const { pan, zoom } = store.workspace
+
+  if (store.activeTool === 'rect-select' && store.workspace.selection.active) {
     const sel = store.workspace.selection
-    const y = Math.max(sel.startY, sel.endY) + 8
-    const x = Math.min(sel.startX, sel.endX)
+    const y = Math.max(sel.startY, sel.endY) * zoom + pan.y + 8
+    const x = Math.min(sel.startX, sel.endX) * zoom + pan.x
     return { top: `${y}px`, left: `${x}px` }
   }
 
-  if (store.activeTool === 'lasso-select') {
+  if (store.activeTool === 'lasso-select' && store.workspace.lasso.active) {
     const bbox = store.workspace.lasso.boundingBox
     if (!bbox) return { display: 'none' }
-    const y = bbox.y + bbox.height + 8
-    const x = bbox.x
+    const y = (bbox.y + bbox.height) * zoom + pan.y + 8
+    const x = bbox.x * zoom + pan.x
     return { top: `${y}px`, left: `${x}px` }
   }
 

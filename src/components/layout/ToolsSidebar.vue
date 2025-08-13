@@ -15,7 +15,6 @@ const emit = defineEmits(['show-controls'])
 const isUploadModalVisible = ref(false)
 const toolsGridRef = ref(null)
 
-// NOVO: Estado para controlar a gaveta de ferramentas
 const activeToolDrawer = ref(null)
 const isDrawerPersistent = ref(false)
 
@@ -27,7 +26,19 @@ const editTools = [
     requiresLayer: true,
   },
   { type: 'divider' },
-  // NOVO: Estrutura para ferramentas com gaveta (Laço)
+  {
+    id: 'brush',
+    name: 'Pincel (B)',
+    icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
+    requiresLayer: true,
+  },
+  // NOVO: Ferramenta Borracha
+  {
+    id: 'eraser',
+    name: 'Borracha (E)',
+    icon: 'M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2Z M10 12H4M10 16H4M14 12h6M14 16h6',
+    requiresLayer: true,
+  },
   {
     id: 'lasso-group',
     name: 'Ferramentas de Laço',
@@ -115,7 +126,6 @@ const tools = computed(() => {
 
 function handleToolClick(tool) {
   if (tool.isGroup) {
-    // Ao clicar num grupo, torna a gaveta persistente
     if (activeToolDrawer.value === tool.id && isDrawerPersistent.value) {
       closeDrawer()
     } else {
@@ -151,7 +161,6 @@ function handleToolClick(tool) {
     store.setActiveTool(tool.id)
   }
 
-  // Se a ferramenta clicada estiver numa gaveta, a gaveta permanece aberta
   if (activeToolDrawer.value) {
     isDrawerPersistent.value = true
   }
@@ -183,7 +192,6 @@ function closeDrawer() {
   isDrawerPersistent.value = false
 }
 
-// Expondo a função para ser usada no WorkspaceView
 defineExpose({ closeDrawer })
 
 watch(
@@ -199,7 +207,6 @@ watch(
   },
 )
 
-// Determina o ícone ativo para um grupo
 function getActiveIconForGroup(group) {
   const activeChild = group.children.find((child) => store.activeTool === child.id)
   return activeChild ? activeChild.icon : group.icon
@@ -299,7 +306,7 @@ function getActiveIconForGroup(group) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 210; /* Acima do painel de controlos */
+  z-index: 210;
 }
 .tools-grid {
   display: grid;
@@ -372,7 +379,7 @@ function getActiveIconForGroup(group) {
   padding: var(--spacing-1);
   display: flex;
   flex-direction: column;
-  z-index: -1; /* Fica atrás do botão principal */
+  z-index: -1;
 }
 .drawer-section {
   display: flex;
