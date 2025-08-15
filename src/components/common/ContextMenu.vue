@@ -19,6 +19,7 @@ const canMergeDown = computed(() => {
     return index > 0;
 });
 
+// --- CORREÇÃO: Adicionar computeds para reatividade do undo/redo ---
 const canUndo = computed(() => {
   if (!targetLayerId.value) return false
   return layerHistoryStore.canUndo(targetLayerId.value)

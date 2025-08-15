@@ -239,10 +239,10 @@ export const useCanvasStore = defineStore('canvas', () => {
       if (!initialState) return;
       const layer = layers.value.find(l => l.id === layerId);
       const finalState = getClonedLayerState(layer);
-      if (JSON.stringify(initialState) !== JSON.stringify(finalState)) {
-          layerHistoryStore.addLayerState(layerId, initialState, actionName);
-          updateLayerThumbnail(layer);
-      }
+if (JSON.stringify(initialState) !== JSON.stringify(finalState)) {
+    layerHistoryStore.addLayerState(layerId, finalState, actionName); // <--- CORREÇÃO
+    updateLayerThumbnail(layer);
+}
   }
 
   function createLayerObject(name, type, url, metadata = {}) {
