@@ -47,8 +47,15 @@ const zoomLevel = computed({
 })
 
 function onClick(action) {
-  if(action) action();
+  // Adicionando um log aqui também para garantir que o clique é capturado
+  console.log(`[ContextMenu.vue] | Ação de clique disparada.`);
+
+  if(action) {
+    console.log(`[ContextMenu.vue] | Executando a ação fornecida...`);
+    action();
+  }
   if (!showZoomSlider.value) {
+    console.log(`[ContextMenu.vue] | Fechando o menu de contexto.`);
     store.showContextMenu(false);
   }
 }
@@ -101,10 +108,10 @@ function onClick(action) {
                             <svg width="20" height="20" viewBox="0 0 24 24"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
                         </button>
                     </div>
-                    <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
-                        <span class="icon">📜</span>
-                        <span class="text">Ver Histórico Detalhado...</span>
-                    </div>
+      <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
+    <span class="icon">📜</span>
+    <span class="text">Ver Histórico Detalhado...</span>
+</div>
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">

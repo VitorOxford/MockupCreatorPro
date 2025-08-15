@@ -55,8 +55,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     isTransforming: false,
     panels: {
         toolOptions: { isVisible: false, isPinned: false, position: { top: 80, left: 72 }, size: { width: 280, height: 'auto' } },
-        layerHistory: { isVisible: false, isPinned: false, position: { top: 120, left: window.innerWidth - 336 }, size: { width: 320, height: 450 } },
-        globalHistory: { isVisible: false, isPinned: false, position: { top: 160, left: window.innerWidth - 672 }, size: { width: 320, height: 450 } },
+        // --- CORREÇÃO AQUI ---
+        // Posição inicial ajustada para ser visível dentro do container.
+        layerHistory: { isVisible: false, isPinned: false, position: { top: 120, left: 400 }, size: { width: 320, height: 450 } },
+        globalHistory: { isVisible: false, isPinned: false, position: { top: 160, left: 450 }, size: { width: 320, height: 450 } },
     },
     historyModalTargetLayerId: null,
     lasso: {
@@ -168,7 +170,10 @@ export const useCanvasStore = defineStore('canvas', () => {
   }
 
   function togglePanel(panelId, visible, targetLayerId = null) {
-      if (!workspace.panels[panelId]) return;
+      if (!workspace.panels[panelId]) {
+          console.error(`Painel com ID '${panelId}' não encontrado.`);
+          return;
+      }
 
       if (typeof visible === 'boolean') {
           workspace.panels[panelId].isVisible = visible;
@@ -239,10 +244,10 @@ export const useCanvasStore = defineStore('canvas', () => {
       if (!initialState) return;
       const layer = layers.value.find(l => l.id === layerId);
       const finalState = getClonedLayerState(layer);
-if (JSON.stringify(initialState) !== JSON.stringify(finalState)) {
-    layerHistoryStore.addLayerState(layerId, finalState, actionName); // <--- CORREÇÃO
-    updateLayerThumbnail(layer);
-}
+      if (JSON.stringify(initialState) !== JSON.stringify(finalState)) {
+          layerHistoryStore.addLayerState(layerId, initialState, actionName);
+          updateLayerThumbnail(layer);
+      }
   }
 
   function createLayerObject(name, type, url, metadata = {}) {

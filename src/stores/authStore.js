@@ -7,6 +7,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const session = ref(null)
   const profile = ref(null)
+  const isAuthenticating = ref(false) // Estado para controlar a tela de loading
 
   async function handleLogin(credentials) {
     const { data, error } = await supabase.auth.signInWithPassword(credentials)
@@ -103,6 +104,11 @@ export const useAuthStore = defineStore('auth', () => {
     return `${data.publicUrl}?t=${new Date().getTime()}`
   }
 
+  // Função para controlar o estado do loading
+  function setAuthenticating(status) {
+    isAuthenticating.value = status
+  }
+
   onMounted(async () => {
     const {
       data: { session: currentSession },
@@ -128,6 +134,8 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     session,
     profile,
+    isAuthenticating,
+    setAuthenticating,
     handleLogin,
     handleSignUp,
     handleLogout,
