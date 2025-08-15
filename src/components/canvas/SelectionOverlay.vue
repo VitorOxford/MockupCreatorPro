@@ -5,10 +5,9 @@ import { useCanvasStore } from '@/stores/canvasStore'
 const store = useCanvasStore()
 
 const isVisible = computed(() => {
-  return (store.workspace.selection.active || store.workspace.lasso.active) && store.workspace.viewMode === 'edit'
+  return (store.workspace.selection.active || store.workspace.lasso.active)
 })
 
-// MODIFICADO: Converte as coordenadas do "mundo" para a tela antes de renderizar
 const selectionStyle = computed(() => {
   const sel = store.workspace.selection
   const { pan, zoom } = store.workspace
@@ -25,7 +24,11 @@ const selectionStyle = computed(() => {
   }
 })
 
-// MODIFICADO: Converte as coordenadas do "mundo" para a tela antes de renderizar
+// CORREÇÃO: Lógica para exibir o tooltip
+const isTooltipVisible = computed(() => {
+    return store.workspace.lasso.active || store.workspace.selection.active;
+});
+
 const tooltipStyle = computed(() => {
   const { pan, zoom } = store.workspace
 
@@ -56,7 +59,7 @@ const tooltipStyle = computed(() => {
       :style="selectionStyle"
     ></div>
 
-    <div class="dimensions-tooltip" :style="tooltipStyle">
+    <div v-if="isTooltipVisible" class="dimensions-tooltip" :style="tooltipStyle">
       <div class="dim-row">
         <span>W:</span>
         <span>{{ store.workspace.selection.dimPxW.toFixed(0) }} px</span>

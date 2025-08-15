@@ -26,17 +26,43 @@ const editTools = [
     requiresLayer: true,
   },
   { type: 'divider' },
+  // MODIFICADO: Agrupado ferramentas de pintura
   {
-    id: 'brush',
-    name: 'Pincel (B)',
+    id: 'paint-group',
+    name: 'Ferramentas de Pintura',
     icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
-    requiresLayer: true,
+    isGroup: true,
+    children: [
+       {
+        id: 'brush',
+        name: 'Pincel (B)',
+        icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
+        requiresLayer: true,
+      },
+      {
+        id: 'bucket',
+        name: 'Lata de Tinta (G)',
+        icon: 'm19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z M5 2l5 5 M22 9l-8.5 20.5 m-2.5-12 3-3',
+        requiresLayer: true,
+      },
+      {
+        id: 'eyedropper',
+        name: 'Conta-gotas (I)',
+        icon: 'm13 2-9 9 4 4 9-9-4-4Z M4 13l8 8',
+        requiresLayer: true,
+      }
+    ],
   },
-  // NOVO: Ferramenta Borracha
   {
     id: 'eraser',
     name: 'Borracha (E)',
     icon: 'M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2Z M10 12H4M10 16H4M14 12h6M14 16h6',
+    requiresLayer: true,
+  },
+  {
+    id: 'magic-wand',
+    name: 'Varinha Mágica (W)',
+    icon: 'M9.5 2.5l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4zM2 13l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4z',
     requiresLayer: true,
   },
   {
@@ -276,8 +302,8 @@ function getActiveIconForGroup(group) {
                 </svg>
               </button>
             </div>
-            <div class="tool-divider"></div>
-            <div class="drawer-section variations">
+            <div v-if="tool.variations" class="tool-divider"></div>
+            <div v-if="tool.variations" class="drawer-section variations">
               <button
                 v-for="variation in tool.variations"
                 :key="variation.id"
@@ -379,7 +405,7 @@ function getActiveIconForGroup(group) {
   padding: var(--spacing-1);
   display: flex;
   flex-direction: column;
-  z-index: -1;
+  z-index: 211;
 }
 .drawer-section {
   display: flex;

@@ -16,13 +16,17 @@ let ctx = null
 const offscreenCanvas = document.createElement('canvas')
 const offscreenCtx = offscreenCanvas.getContext('2d')
 
+let actionStartState = null;
+let currentActionName = null;
+
 let isPanning = false
 let isDraggingLayer = false
 let isTransformingLayer = false
 let isDrawingSelection = false
 let isPainting = false
-let isErasing = false // NOVO
-let currentStroke = [] // Renomeado de currentPaintStroke
+let isErasing = false
+let isWandSelecting = false;
+let currentStroke = []
 let transformType = null
 let dragStartOffset = { x: 0, y: 0 }
 let lastPanPosition = { x: 0, y: 0 }
@@ -85,8 +89,12 @@ function renderEditMode(canvas) {
     ctx.scale(layer.scale, layer.scale)
     ctx.globalAlpha = layer.opacity
 
+    const imageToRender = (store.workspace.isTransforming && layer.lowResProxy) ? layer.lowResProxy : layer.image;
+
+    ctx.imageSmoothingEnabled = !(store.workspace.isTransforming && layer.lowResProxy);
+
     ctx.drawImage(
-      layer.image,
+      imageToRender,
       -layer.metadata.originalWidth / 2,
       -layer.metadata.originalHeight / 2,
       layer.metadata.originalWidth,
@@ -167,6 +175,7 @@ function initCanvas() {
   setupEventListeners()
   renderCanvas()
 }
+
 function resizeCanvas() {
   const wrapper = wrapperRef.value
   if (!wrapper) return
@@ -176,10 +185,10 @@ function resizeCanvas() {
   canvasRef.value.height = height
   renderCanvas()
 }
+
 function setupEventListeners() {
   const canvas = canvasRef.value
   window.addEventListener('resize', resizeCanvas)
-  window.addEventListener('keydown', handleKeyDown)
   canvas.addEventListener('mousedown', handleMouseDown)
   document.addEventListener('mousemove', handleMouseMove)
   document.addEventListener('mouseup', handleMouseUp)
@@ -187,9 +196,9 @@ function setupEventListeners() {
   canvas.addEventListener('wheel', handleWheel, { passive: false })
   canvas.addEventListener('contextmenu', handleContextMenu)
 }
+
 function cleanupEventListeners() {
   window.removeEventListener('resize', resizeCanvas)
-  window.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
   document.removeEventListener('mouseleave', handleMouseUp)
@@ -200,12 +209,16 @@ function cleanupEventListeners() {
     canvas.removeEventListener('contextmenu', handleContextMenu)
   }
 }
+
 function onHandleMouseDown({ event, type, cursor }) {
   event.preventDefault()
   if (!store.selectedLayer) return
   isTransformingLayer = true
   transformType = type
   document.body.style.cursor = cursor
+  store.setTransformingState(true);
+  actionStartState = store.getClonedLayerState(store.selectedLayer);
+  currentActionName = type === 'rotate' ? 'Rodar' : 'Redimensionar';
   const mouse = { x: event.clientX, y: event.clientY }
   const layer = store.selectedLayer
   if (type === 'rotate') {
@@ -216,119 +229,127 @@ function onHandleMouseDown({ event, type, cursor }) {
     store.startLayerResize(mouse, layer.scale)
   }
 }
+
 function handleContextMenu(e) {
   e.preventDefault()
   const mouse = { x: e.offsetX, y: e.offsetY }
   const clickedLayer = getLayerAtPosition(mouse)
-
   if (clickedLayer) {
     store.showContextMenu(true, { x: e.clientX, y: e.clientY }, clickedLayer.id)
   }
 }
 
-function handleKeyDown(e) {
-  if (!store.isSelectionActive) return
-
-  if (e.ctrlKey && e.key.toLowerCase() === 'c') {
-    e.preventDefault()
-    store.copySelectionToClipboard()
-  } else if (e.ctrlKey && e.key.toLowerCase() === 'v') {
-    e.preventDefault()
-    store.pasteSelection()
-  } else if (e.ctrlKey && e.key.toLowerCase() === 'd') {
-    e.preventDefault()
-    store.duplicateSelection()
-  } else if (e.key === 'Backspace' || e.key === 'Delete') {
-    e.preventDefault()
-    store.cutoutSelection()
-  }
-}
-
 function handleMouseDown(e) {
-  if (store.workspace.isContextMenuVisible) store.showContextMenu(false)
-  if (store.workspace.isSelectionContextMenuVisible) store.showSelectionContextMenu(false)
-  if (e.button !== 0) return
+  if (store.workspace.isContextMenuVisible) store.showContextMenu(false);
+  if (store.workspace.isSelectionContextMenuVisible) store.showSelectionContextMenu(false);
+  if (e.button !== 0) return;
 
-  const mouse = { x: e.offsetX, y: e.offsetY }
-  const worldMouse = screenToWorkspaceCoords(mouse)
+  const mouse = { x: e.offsetX, y: e.offsetY };
+  const worldMouse = screenToWorkspaceCoords(mouse);
+  const clickedLayer = getLayerAtPosition(mouse);
 
-  if (store.activeTool === 'brush') {
-    if (!store.selectedLayer) {
-      alert('Selecione uma camada para pintar.')
-      return
-    }
-    const layerCoords = screenToLayerCoords(mouse, store.selectedLayer, true)
+  // Define a camada clicada como a selecionada ANTES de calcular as coordenadas da ferramenta
+  if (clickedLayer && store.selectedLayerId !== clickedLayer.id) {
+    store.selectLayer(clickedLayer.id);
+  }
 
-    if (store.paintTool === 'brush') {
-      isPainting = true
-      currentStroke = [layerCoords]
-      store.applyPaintToLayer(currentStroke)
-    } else if (store.paintTool === 'bucket') {
-      store.floodFillLayer(layerCoords.x, layerCoords.y)
-    } else if (store.paintTool === 'eyedropper') {
-      const pixel = ctx.getImageData(mouse.x, mouse.y, 1, 1).data
+  // Recalcula as coordenadas da camada APÓS a seleção ter sido atualizada
+  const layerCoords = store.selectedLayer ? screenToLayerCoords(mouse, store.selectedLayer) : null;
+
+
+  switch (store.activeTool) {
+    case 'magic-wand':
+      if (!layerCoords) return alert('Selecione uma camada para usar a varinha mágica.');
+      isWandSelecting = true;
+      store.selectWithMagicWand(layerCoords, e.shiftKey);
+      break;
+
+    case 'brush':
+      if (!layerCoords) return;
+      isPainting = true;
+      actionStartState = store.getClonedLayerState(store.selectedLayer);
+      currentActionName = 'Pintura';
+      currentStroke = [layerCoords];
+      store.applyPaintToLayer(currentStroke);
+      break;
+
+    case 'bucket':
+      if (!layerCoords) return alert('Selecione uma camada para pintar.');
+      store.floodFillLayer(layerCoords.x, layerCoords.y);
+      break;
+
+    case 'eyedropper':
+      const pixel = ctx.getImageData(mouse.x, mouse.y, 1, 1).data;
       const hex = "#" + ("000000" + ((pixel[0] << 16) | (pixel[1] << 8) | pixel[2]).toString(16)).slice(-6);
-      store.setPrimaryColor(hex)
-      store.setPaintTool('brush')
-    }
-    return
-  }
+      store.setPrimaryColor(hex);
+      store.setActiveTool('brush');
+      break;
 
-  // NOVO: Lógica da borracha
-  if (store.activeTool === 'eraser') {
-    if (!store.selectedLayer) {
-      alert('Selecione uma camada para apagar.');
-      return;
-    }
-    isErasing = true;
-    const layerCoords = screenToLayerCoords(mouse, store.selectedLayer, true);
-    currentStroke = [layerCoords];
-    store.eraseFromLayer(currentStroke);
-    return;
-  }
+    case 'eraser':
+      if (!layerCoords) return alert('Selecione uma camada para apagar.');
+      isErasing = true;
+      actionStartState = store.getClonedLayerState(store.selectedLayer);
+      currentActionName = 'Apagar';
+      currentStroke = [layerCoords];
+      store.eraseFromLayer(currentStroke);
+      break;
 
-  if (store.activeTool === 'rect-select') {
-    isDrawingSelection = true
-    store.startSelection(worldMouse)
-    return
+    case 'rect-select':
+      isDrawingSelection = true;
+      store.startSelection(worldMouse);
+      break;
+
+    case 'lasso-select':
+      isDrawingSelection = true;
+      store.startLasso(worldMouse);
+      break;
+
+    case 'move':
+      if (clickedLayer) {
+        isDraggingLayer = true;
+        store.setTransformingState(true);
+        actionStartState = store.getClonedLayerState(clickedLayer);
+        currentActionName = 'Mover';
+        // Calcula o offset do drag em relação ao centro da camada
+        const worldMouse = screenToWorkspaceCoords(mouse);
+        dragStartOffset = { x: worldMouse.x - clickedLayer.x, y: worldMouse.y - clickedLayer.y };
+      } else {
+        isPanning = true;
+        lastPanPosition = { x: e.clientX, y: e.clientY };
+        canvasRef.value.style.cursor = 'grabbing';
+      }
+      break;
+
+    default:
+      isPanning = true;
+      lastPanPosition = { x: e.clientX, y: e.clientY };
+      canvasRef.value.style.cursor = 'grabbing';
+      break;
   }
-  if (store.activeTool === 'lasso-select') {
-    isDrawingSelection = true
-    store.startLasso(worldMouse)
-    return
-  }
-  const clickedLayer = getLayerAtPosition(mouse)
-  if (store.activeTool === 'move' && clickedLayer) {
-    if (store.selectedLayerId !== clickedLayer.id) store.selectLayer(clickedLayer.id)
-    isDraggingLayer = true
-    const layerCoords = screenToLayerCoords(mouse, clickedLayer)
-    dragStartOffset = { x: layerCoords.x, y: layerCoords.y }
-    return
-  }
-  isPanning = true
-  lastPanPosition = { x: e.clientX, y: e.clientY }
-  canvasRef.value.style.cursor = 'grabbing'
 }
 
 function handleMouseMove(e) {
-  const mouse = { x: e.clientX, y: e.clientY }
-  const canvasMouse = { x: e.offsetX, y: e.offsetY }
-  const worldMouse = screenToWorkspaceCoords(canvasMouse)
+  const mouse = { x: e.clientX, y: e.clientY };
+  const canvasMouse = { x: e.offsetX, y: e.offsetY };
+  const worldMouse = screenToWorkspaceCoords(canvasMouse);
 
-  if (isPainting && store.paintTool === 'brush' && store.selectedLayer) {
-    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer, true)
-    currentStroke.push(layerCoords);
-    const lastTwoPoints = currentStroke.slice(-2);
-    store.applyPaintToLayer(lastTwoPoints);
+  if (isWandSelecting && store.selectedLayer) {
+    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
+    store.selectWithMagicWand(layerCoords, true);
     return;
   }
 
-  // NOVO: Lógica da borracha
-  if (isErasing && store.selectedLayer) {
-    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer, true);
+  if (isPainting && store.selectedLayer) {
+    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
     currentStroke.push(layerCoords);
-    const lastTwoPoints = currentStroke.slice(-2);
-    store.eraseFromLayer(lastTwoPoints);
+    store.applyPaintToLayer(currentStroke.slice(-2));
+    return;
+  }
+
+  if (isErasing && store.selectedLayer) {
+    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
+    currentStroke.push(layerCoords);
+    store.eraseFromLayer(currentStroke.slice(-2));
     return;
   }
 
@@ -364,8 +385,30 @@ function handleMouseMove(e) {
     lastPanPosition = { x: e.clientX, y: e.clientY }
   }
 }
+
 function handleMouseUp(e) {
+  if (store.workspace.isTransforming) {
+    store.setTransformingState(false);
+    requestAnimationFrame(renderCanvas);
+  }
+
   const mousePosition = { x: e.clientX, y: e.clientY };
+
+  if (actionStartState && currentActionName) {
+      if(store.selectedLayer) {
+        store.commitLayerStateToHistory(store.selectedLayer.id, actionStartState, currentActionName);
+      }
+      actionStartState = null;
+      currentActionName = null;
+  }
+
+  if (isWandSelecting) {
+    isWandSelecting = false;
+    if (store.isSelectionActive) {
+      store.showSelectionContextMenu(true, mousePosition);
+    }
+  }
+
   if (isDrawingSelection) {
     if (store.activeTool === 'rect-select') store.endSelection(mousePosition)
     if (store.activeTool === 'lasso-select') store.endLasso(mousePosition)
@@ -379,11 +422,13 @@ function handleMouseUp(e) {
   isDraggingLayer = false
   isTransformingLayer = false
   isDrawingSelection = false
+  isWandSelecting = false;
   document.body.style.cursor = 'default'
 
   const cursorMap = {
     'rect-select': 'crosshair',
     'lasso-select': 'crosshair',
+    'magic-wand': 'crosshair',
     brush: 'crosshair',
     eraser: 'crosshair',
     move: 'grab',
@@ -393,108 +438,70 @@ function handleMouseUp(e) {
   }
 }
 
-function handleWheel(e) {
-  e.preventDefault()
-  if (store.workspace.viewMode === 'preview') return
-  const zoomIntensity = 0.1
-  const direction = e.deltaY < 0 ? 1 : -1
-  const mouse = { x: e.offsetX, y: e.offsetY }
-  const { pan, zoom } = store.workspace
-  const worldX = (mouse.x - pan.x) / zoom
-  const worldY = (mouse.y - pan.y) / zoom
-  const newZoom = zoom * (1 + direction * zoomIntensity)
-  const saneZoom = Math.max(0.02, Math.min(newZoom, 10))
-  const newPanX = mouse.x - worldX * saneZoom
-  const newPanY = mouse.y - worldY * saneZoom
-  store.updateWorkspace({ zoom: saneZoom, pan: { x: newPanX, y: newPanY } })
-}
-function screenToWorkspaceCoords(screenCoords) {
-  const { pan, zoom } = store.workspace
-  return { x: (screenCoords.x - pan.x) / zoom, y: (screenCoords.y - pan.y) / zoom }
-}
+    function handleWheel(e) { e.preventDefault(); if (store.workspace.viewMode === 'preview') return; const zoomIntensity = 0.1; const direction = e.deltaY < 0 ? 1 : -1; const mouse = { x: e.offsetX, y: e.offsetY }; const { pan, zoom } = store.workspace; const worldX = (mouse.x - pan.x) / zoom; const worldY = (mouse.y - pan.y) / zoom; const newZoom = zoom * (1 + direction * zoomIntensity); const saneZoom = Math.max(0.02, Math.min(newZoom, 10)); const newPanX = mouse.x - worldX * saneZoom; const newPanY = mouse.y - worldY * saneZoom; store.updateWorkspace({ zoom: saneZoom, pan: { x: newPanX, y: newPanY } }); }
+    function screenToWorkspaceCoords(screenCoords) { const { pan, zoom } = store.workspace; return { x: (screenCoords.x - pan.x) / zoom, y: (screenCoords.y - pan.y) / zoom }; }
 
-function screenToLayerCoords(screenCoords, layer, isPaint = false) {
-  const workspaceCoords = screenToWorkspaceCoords(screenCoords);
-  const dx = workspaceCoords.x - layer.x;
-  const dy = workspaceCoords.y - layer.y;
+    // --- FUNÇÃO DE COORDENADAS CORRIGIDA ---
+    function screenToLayerCoords(screenCoords, layer) {
+        const { pan, zoom } = store.workspace;
+        const { x: layerX, y: layerY, scale, rotation, metadata, adjustments } = layer;
+        const { originalWidth, originalHeight } = metadata;
 
-  const cos = Math.cos(-layer.rotation);
-  const sin = Math.sin(-layer.rotation);
+        // 1. Converte as coordenadas da tela para o espaço do "mundo" (canvas)
+        const worldX = (screenCoords.x - pan.x) / zoom;
+        const worldY = (screenCoords.y - pan.y) / zoom;
 
-  const rotatedX = (dx * cos - dy * sin) / layer.scale;
-  const rotatedY = (dx * sin + dy * cos) / layer.scale;
+        // 2. Calcula a distância do ponto no mundo ao centro da camada
+        const dx = worldX - layerX;
+        const dy = worldY - layerY;
 
-  return {
-    x: rotatedX + (isPaint ? layer.metadata.originalWidth / 2 : 0),
-    y: rotatedY + (isPaint ? layer.metadata.originalHeight / 2 : 0),
-  };
-}
+        // 3. Desfaz a rotação da camada
+        const cos = Math.cos(-rotation);
+        const sin = Math.sin(-rotation);
+        const rotatedX = dx * cos - dy * sin;
+        const rotatedY = dx * sin + dy * cos;
 
-function getLayerScreenCenter(layer) {
-  const { pan, zoom } = store.workspace
-  return { x: layer.x * zoom + pan.x, y: layer.y * zoom + pan.y }
-}
-function getLayerAtPosition(screenCoords) {
-  for (let i = store.layers.length - 1; i >= 0; i--) {
-    const layer = store.layers[i]
-    if (!layer.image || !layer.visible) continue
+        // 4. Desfaz a escala da camada
+        const unscaledX = rotatedX / scale;
+        const unscaledY = rotatedY / scale;
 
-    const layerCoords = screenToLayerCoords(screenCoords, layer, false);
+        // 5. Desfaz o flip (se houver)
+        const scaleFlipX = adjustments.flipH ? -1 : 1;
+        const scaleFlipY = adjustments.flipV ? -1 : 1;
+        const unscaledFlippedX = unscaledX / scaleFlipX;
+        const unscaledFlippedY = unscaledY / scaleFlipY;
 
-    const halfW = layer.metadata.originalWidth / 2;
-    const halfH = layer.metadata.originalHeight / 2;
-
-    if (
-      layerCoords.x >= -halfW &&
-      layerCoords.x <= halfW &&
-      layerCoords.y >= -halfH &&
-      layerCoords.y <= halfH
-    ) {
-      return layer
+        // 6. Translada a coordenada para a origem (0,0) da imagem (canto superior esquerdo)
+        // A origem da renderização é o centro, então adicionamos metade da largura/altura originais.
+        return {
+            x: unscaledFlippedX + originalWidth / 2,
+            y: unscaledFlippedY + originalHeight / 2,
+        };
     }
-  }
-  return null
-}
-watch(
-  () => store.activeTool,
-  (newTool) => {
-    if (canvasRef.value) {
-       const cursorMap = {
-        'rect-select': 'crosshair',
-        'lasso-select': 'crosshair',
-        brush: 'crosshair',
-        eraser: 'crosshair',
-        move: 'grab',
+
+    function getLayerScreenCenter(layer) { const { pan, zoom } = store.workspace; return { x: layer.x * zoom + pan.x, y: layer.y * zoom + pan.y }; }
+
+    // --- FUNÇÃO DE DETECÇÃO DE CAMADA CORRIGIDA ---
+    function getLayerAtPosition(screenCoords) {
+      for (let i = store.layers.length - 1; i >= 0; i--) {
+        const layer = store.layers[i];
+        if (!layer.image || !layer.visible) continue;
+
+        const { x, y } = screenToLayerCoords(screenCoords, layer);
+
+        // Verifica se o ponto (x,y) está dentro dos limites da imagem original
+        if (x >= 0 && x <= layer.metadata.originalWidth && y >= 0 && y <= layer.metadata.originalHeight) {
+          return layer;
+        }
       }
-      canvasRef.value.style.cursor = cursorMap[newTool] || 'default'
+      return null;
     }
-  },
-)
 
-watch(
-  () => [
-    store.layers.map(l => l.version),
-    store.workspace.zoom,
-    store.workspace.pan,
-    store.layers,
-  ],
-  () => {
-    requestAnimationFrame(renderCanvas)
-  },
-  { deep: true },
-)
-
-const adjustmentsStore = useImageAdjustmentsStore()
-watch(
-  () => [adjustmentsStore.tempAdjustments, adjustmentsStore.isModalVisible],
-  () => {
-    requestAnimationFrame(renderCanvas)
-  },
-  { deep: true },
-)
-
-onMounted(initCanvas)
-onUnmounted(cleanupEventListeners)
+    watch( () => store.activeTool, (newTool) => { if (canvasRef.value) { const cursorMap = { 'rect-select': 'crosshair', 'lasso-select': 'crosshair', 'magic-wand': 'crosshair', brush: 'crosshair', eraser: 'crosshair', move: 'grab', }; canvasRef.value.style.cursor = cursorMap[newTool] || 'default'; } }, )
+    watch( () => [ store.layers.map(l => l.version), store.workspace.zoom, store.workspace.pan, store.layers, store.workspace.isTransforming ], () => { requestAnimationFrame(renderCanvas); }, { deep: true }, )
+    const adjustmentsStore = useImageAdjustmentsStore(); watch( () => [adjustmentsStore.tempAdjustments, adjustmentsStore.isModalVisible], () => { requestAnimationFrame(renderCanvas); }, { deep: true }, )
+    onMounted(initCanvas);
+    onUnmounted(cleanupEventListeners);
 </script>
 
 <template>

@@ -11,7 +11,7 @@ const isLassoSelectionActive = computed(() => store.workspace.lasso.points.lengt
 const canMergeDown = computed(() => {
     if (!store.workspace.contextMenuTargetLayerId) return false;
     const index = store.layers.findIndex(l => l.id === store.workspace.contextMenuTargetLayerId);
-    return index > 0; // Pode mesclar se não for a primeira camada (índice 0)
+    return index > 0;
 });
 
 function onClick(action) {
@@ -34,6 +34,10 @@ function onClick(action) {
       </li>
       <li :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(store.workspace.contextMenuTargetLayerId))">
         Mesclar para Baixo
+      </li>
+      <li class="divider"></li>
+      <li @click="onClick(() => store.showLayerHistoryModal(true, store.workspace.contextMenuTargetLayerId, store.workspace.contextMenuPosition))">
+        Histórico de Alterações...
       </li>
       <li class="divider"></li>
       <li
@@ -73,6 +77,7 @@ function onClick(action) {
 </template>
 
 <style scoped>
+/* O CSS deste ficheiro permanece igual */
 .context-menu {
   position: absolute;
   background-color: var(--c-surface);

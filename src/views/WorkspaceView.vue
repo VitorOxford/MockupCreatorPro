@@ -3,39 +3,24 @@ import AppHeader from '@/components/layout/AppHeader.vue'
 import TopMenuBar from '@/components/layout/TopMenuBar.vue'
 import ToolsSidebar from '@/components/layout/ToolsSidebar.vue'
 import CanvasArea from '@/components/canvas/CanvasArea.vue'
-import ToolControlsPanel from '@/components/controls/ToolControlsPanel.vue'
 import LayersPanel from '@/components/layers/LayersPanel.vue'
 import DimensionLines from '@/components/canvas/DimensionLines.vue'
 import LassoOverlay from '@/components/canvas/LassoOverlay.vue'
 import { useCanvasStore } from '@/stores/canvasStore'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import SelectionContextMenu from '@/components/common/SelectionContextMenu.vue'
 import ResizeModal from '@/components/modals/ResizeModal.vue'
 import PreviewSidebar from '@/components/preview/PreviewSidebar.vue'
 import SignatureModal from '@/components/modals/SignatureModal.vue'
-import BrushSidebar from '@/components/layout/BrushSidebar.vue'
+import ToolOptionsPanel from '@/components/layout/BrushSidebar.vue'
+// IMPORTA OS NOVOS MODAIS
+import GlobalHistoryModal from '@/components/modals/GlobalHistoryModal.vue'
+import LayerHistoryModal from '@/components/modals/LayerHistoryModal.vue'
 
 const store = useCanvasStore()
-const toolControlsPosition = ref({ top: 0, left: 0, visible: false })
 const toolsSidebarRef = ref(null)
-
-function updateToolControls(position) {
-  toolControlsPosition.value = position
-}
-
-const isToolControlsVisible = computed(() => {
-  if (!store.selectedLayer && store.activeTool !== 'zoom-preview') return false
-  const isEditMode = store.workspace.viewMode === 'edit'
-  const isInteractivePreview =
-    store.workspace.viewMode === 'preview' &&
-    store.workspace.previewIsInteractive &&
-    store.selectedLayer?.type === 'pattern'
-  const isZoomPreview =
-    store.workspace.viewMode === 'preview' && store.activeTool === 'zoom-preview'
-  return toolControlsPosition.value.visible && (isEditMode || isInteractivePreview || isZoomPreview)
-})
 
 const artboardStyle = computed(() => ({
   transform: `scale(${store.workspace.previewZoom})`,
@@ -50,31 +35,42 @@ function handleWrapperClick() {
     toolsSidebarRef.value.closeDrawer()
   }
 }
+
+// LÓGICA PARA O ATALHO CTRL+Z
+function handleKeyDown(e) {
+  if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    store.undoLastAction();
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown);
+});
 </script>
 
 <template>
   <div
     class="workspace-layout"
-    :class="{ 'preview-mode': store.workspace.viewMode === 'preview', 'brush-mode': store.workspace.isBrushSidebarVisible }"
+    :class="{ 'preview-mode': store.workspace.viewMode === 'preview' }"
     @click="handleWrapperClick"
   >
     <AppHeader />
     <TopMenuBar />
 
-    <ToolsSidebar
-      ref="toolsSidebarRef"
-      :mode="store.workspace.viewMode"
-      @show-controls="updateToolControls"
-    />
-
-    <BrushSidebar v-if="store.workspace.isBrushSidebarVisible" />
+    <ToolsSidebar ref="toolsSidebarRef" :mode="store.workspace.viewMode" />
 
     <main class="canvas-container">
+      <ToolOptionsPanel v-if="store.workspace.isBrushSidebarVisible" />
+
       <div v-if="store.workspace.viewMode === 'edit'" class="edit-mode-wrapper">
         <CanvasArea>
           <LassoOverlay />
         </CanvasArea>
-        <ToolControlsPanel v-if="isToolControlsVisible" :position="toolControlsPosition" />
       </div>
 
       <div v-else class="preview-mode-wrapper">
@@ -86,7 +82,6 @@ function handleWrapperClick() {
             <DimensionLines />
           </div>
         </div>
-        <ToolControlsPanel v-if="isToolControlsVisible" :position="toolControlsPosition" />
 
         <button class="open-preview-sidebar-btn" @click="store.showPreviewSidebar(true)">
           &#9664; Detalhes e Aprovação
@@ -96,6 +91,9 @@ function handleWrapperClick() {
       <ContextMenu v-if="store.workspace.isContextMenuVisible" />
       <SelectionContextMenu v-if="store.workspace.isSelectionContextMenuVisible" />
       <ResizeModal v-if="store.workspace.isResizeModalVisible" />
+
+      <GlobalHistoryModal />
+      <LayerHistoryModal />
 
       <PreviewSidebar />
       <SignatureModal />
@@ -120,14 +118,6 @@ function handleWrapperClick() {
   position: relative;
 }
 
-.workspace-layout.brush-mode {
-  grid-template-columns: var(--sidebar-width) 280px 1fr var(--assets-width);
-   grid-template-areas:
-    'header header header header'
-    'top-menu top-menu top-menu top-menu'
-    'tools brush-sidebar canvas layers';
-}
-
 .workspace-layout.preview-mode {
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--header-height) 40px 1fr;
@@ -140,12 +130,10 @@ function handleWrapperClick() {
 .app-header { grid-area: header; }
 .top-menu-bar { grid-area: top-menu; }
 .tools-sidebar { grid-area: tools; }
-.brush-sidebar { grid-area: brush-sidebar; }
 .canvas-container { grid-area: canvas; }
 .layers-panel { grid-area: layers; }
 
 .tools-sidebar,
-.brush-sidebar,
 .canvas-container,
 .layers-panel {
   height: calc(100vh - var(--header-height) - 40px);

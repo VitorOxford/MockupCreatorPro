@@ -18,9 +18,9 @@ function handleFile(file, type) {
   }
 
   // --- CORREÇÃO DE PERFORMANCE ---
-  // Passa o objeto File diretamente para o store, que usará URL.createObjectURL
-  const imageUrl = URL.createObjectURL(file)
-  store.addLocalLayer(file, type, imageUrl)
+  // Passa o objeto File diretamente para o store, que usará o Web Worker.
+  // Não é mais necessário criar um URL de objeto aqui.
+  store.addLocalLayer(file, type)
   emit('close')
 }
 

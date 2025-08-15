@@ -24,6 +24,7 @@ const pointsString = computed(() => {
   <div v-if="isVisible" class="lasso-overlay-container">
     <svg width="100%" height="100%">
       <polygon :points="pointsString" class="lasso-path" />
+      <polygon :points="pointsString" class="lasso-path marching-ants" />
     </svg>
   </div>
 </template>
@@ -40,10 +41,25 @@ const pointsString = computed(() => {
 }
 .lasso-path {
   fill: rgba(13, 153, 255, 0.2);
-  stroke: var(--c-primary);
   stroke-width: 1.5;
-  stroke-dasharray: 4 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+/* MODIFICADO: Estilos para o contorno animado */
+.lasso-path {
+    stroke: var(--c-primary);
+    stroke-dasharray: 4 4;
+}
+
+.lasso-path.marching-ants {
+    stroke: white;
+    animation: march 0.5s linear infinite;
+}
+
+@keyframes march {
+  to {
+    stroke-dashoffset: -8;
+  }
 }
 </style>

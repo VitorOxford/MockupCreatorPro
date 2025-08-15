@@ -10,7 +10,7 @@ const draggedLayerIndex = ref(null)
 const reversedLayers = computed(() => [...store.layers].reverse())
 
 function toggleVisibility(layer) {
-  store.updateLayerProperties(layer.id, { visible: !layer.visible })
+  store.updateLayerProperties(layer.id, { visible: !layer.visible }, 'Visibilidade')
 }
 
 const selectedLayerOpacity = computed({
@@ -19,7 +19,7 @@ const selectedLayerOpacity = computed({
   },
   set(value) {
     if (store.selectedLayer) {
-      store.updateLayerProperties(store.selectedLayer.id, { opacity: value / 100 })
+      store.updateLayerProperties(store.selectedLayer.id, { opacity: value / 100 }, 'Opacidade')
     }
   },
 })
@@ -48,8 +48,8 @@ function handleDrop(event, reversedIndex) {
   draggedLayerIndex.value = null
 }
 
-// --- NOVA FUNÇÃO ---
 function handleContextMenu(event, layerId) {
+  // Adiciona a opção de abrir o histórico da camada ao menu de contexto
   store.showContextMenu(true, { x: event.clientX, y: event.clientY }, layerId)
 }
 </script>

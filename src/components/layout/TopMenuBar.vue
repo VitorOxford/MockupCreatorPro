@@ -10,10 +10,20 @@ const activeMenu = ref(null)
 const isLassoSelectionActive = computed(() => store.workspace.lasso.points.length > 2)
 
 const menus = [
-  { name: 'Ficheiro', items: [{ name: 'Exportar...', action: () => alert('Exportar!') }] },
+  {
+    name: 'Ficheiro',
+    items: [
+      { name: 'Exportar...', action: () => alert('Exportar!') }
+    ]
+  },
   {
     name: 'Editar',
     items: [
+      {
+        name: 'Desfazer (Ctrl+Z)',
+        action: () => store.undoLastAction(),
+      },
+      { type: 'divider' },
       {
         name: 'Duplicar Camada',
         action: () => store.duplicateLayer(store.selectedLayerId),
@@ -54,6 +64,13 @@ const menus = [
       },
     ],
   },
+  // NOVO MENU
+  {
+    name: 'Histórico',
+    items: [
+        { name: 'Ver Histórico Global...', action: () => store.showGlobalHistoryModal(true) }
+    ]
+  }
 ]
 
 function toggleMenu(menuName) {

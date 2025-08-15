@@ -22,11 +22,16 @@ const boxStyle = computed(() => {
   const screenCenterX = layer.x * zoom + pan.x
   const screenCenterY = layer.y * zoom + pan.y
 
+  // CORREÇÃO: Adiciona escala para o flip
+  const scaleX = layer.adjustments.flipH ? -1 : 1
+  const scaleY = layer.adjustments.flipV ? -1 : 1
+
   return {
     transform: `
       translate(${screenCenterX}px, ${screenCenterY}px)
       translate(-50%, -50%)
       rotate(${layer.rotation}rad)
+      scale(${scaleX}, ${scaleY})
     `,
     width: `${displayWidth}px`,
     height: `${displayHeight}px`,
