@@ -1,58 +1,62 @@
 // src/directives/draggable.js
+import { useCanvasStore } from '@/stores/canvasStore';
+
 export const draggable = {
   mounted(el, binding) {
-    let offsetX = 0;
-    let offsetY = 0;
-    let isDragging = false;
+    const store = useCanvasStore();
+    const panelId = binding.value?.panelId;
+    if (!store || !panelId) {
+      console.error('Draggable directive requires a panelId.');
+      return;
+    }
 
     const handle = el.querySelector('.draggable-handle') || el;
     handle.style.cursor = 'move';
 
-    // Acessa a store a partir do contexto da aplicação
-    const store = binding.instance?.$pinia.state.value.canvas;
-    const panelId = binding.value?.panelId;
-
-    if (!store || !panelId) {
-        console.error('Draggable directive requires a panelId and access to the canvas store.');
-        return;
-    }
+    let initialTop, initialLeft;
+    let initialMouseX, initialMouseY;
+    let isDragging = false;
 
     const onMouseDown = (e) => {
-      if (e.target.closest('input, button, .resize-handle')) return;
+      if (e.target.closest('button, input, .resize-handle')) return;
       if (e.button !== 0) return;
 
       isDragging = true;
-      const rect = el.getBoundingClientRect();
 
-      // Calcula o offset em relação à posição do painel, não ao viewport
-      offsetX = e.clientX - rect.left;
-      offsetY = e.clientY - rect.top;
+      // Guarda a posição inicial do painel e do mouse no momento do clique
+      initialTop = el.offsetTop;
+      initialLeft = el.offsetLeft;
+      initialMouseX = e.clientX;
+      initialMouseY = e.clientY;
 
       document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      document.addEventListener('mouseup', onMouseUp, { once: true });
     };
 
     const onMouseMove = (e) => {
       if (!isDragging) return;
+      e.preventDefault();
 
-      const newTop = e.clientY - offsetY;
-      const newLeft = e.clientX - offsetX;
+      // Calcula o quanto o mouse se moveu desde o clique inicial
+      const dx = e.clientX - initialMouseX;
+      const dy = e.clientY - initialMouseY;
 
-      el.style.top = `${newTop}px`;
-      el.style.left = `${newLeft}px`;
+      // Aplica essa mesma diferença à posição inicial do painel
+      el.style.top = `${initialTop + dy}px`;
+      el.style.left = `${initialLeft + dx}px`;
     };
 
-    const onMouseUp = (e) => {
-      if (!isDragging) return;
+    const onMouseUp = () => {
       isDragging = false;
-
-      // Salva a posição final na store
-      const newTop = e.clientY - offsetY;
-      const newLeft = e.clientX - offsetX;
-      store.updatePanelState(panelId, { position: { top: newTop, left: newLeft } });
-
       document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+
+      // Salva a posição final no store para persistência
+      store.updatePanelState(panelId, {
+        position: {
+          top: el.offsetTop,
+          left: el.offsetLeft
+        }
+      });
     };
 
     handle.addEventListener('mousedown', onMouseDown);

@@ -1,7 +1,9 @@
 <script setup>
 import { computed } from 'vue';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { draggable } from '@/directives/draggable.js';
+// As diretivas são registradas globalmente em main.js, não precisam de importação aqui
+// import { draggable } from '@/directives/draggable.js';
+// import { resizable } from '@/directives/resizable.js';
 
 const props = defineProps({
   panelId: { type: String, required: true },
@@ -26,6 +28,7 @@ function togglePin() {
     v-if="panelState && panelState.isVisible"
     class="floating-panel"
     v-draggable="{ panelId: props.panelId }"
+    v-resizable="{ panelId: props.panelId }"
     :style="{
       top: `${panelState.position.top}px`,
       left: `${panelState.position.left}px`,
@@ -47,7 +50,19 @@ function togglePin() {
         <button class="close-btn" @click="closePanel">&times;</button>
       </div>
     </header>
-    <slot></slot>
+
+    <div class="panel-content-wrapper">
+      <slot></slot>
+    </div>
+
+    <div class="resize-handle top-left" data-handle="top-left"></div>
+    <div class="resize-handle top-right" data-handle="top-right"></div>
+    <div class="resize-handle bottom-left" data-handle="bottom-left"></div>
+    <div class="resize-handle bottom-right" data-handle="bottom-right"></div>
+    <div class="resize-handle top" data-handle="top"></div>
+    <div class="resize-handle bottom" data-handle="bottom"></div>
+    <div class="resize-handle left" data-handle="left"></div>
+    <div class="resize-handle right" data-handle="right"></div>
   </div>
 </template>
 
@@ -62,6 +77,7 @@ function togglePin() {
   display: flex;
   flex-direction: column;
   min-width: 250px;
+  min-height: 150px; /* Altura mínima */
 }
 
 .panel-header {
@@ -75,6 +91,12 @@ function togglePin() {
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
   cursor: move;
+}
+
+.panel-content-wrapper {
+  flex-grow: 1;
+  overflow: auto; /* Adiciona barra de rolagem quando necessário */
+  position: relative;
 }
 
 .panel-title {
@@ -115,4 +137,19 @@ function togglePin() {
   font-size: 1.5rem;
   line-height: 1;
 }
+
+/* Estilos para as alças de redimensionamento */
+.resize-handle {
+    position: absolute;
+    background: transparent;
+    z-index: 10;
+}
+.resize-handle.top-left { top: -5px; left: -5px; width: 10px; height: 10px; cursor: nwse-resize; }
+.resize-handle.top-right { top: -5px; right: -5px; width: 10px; height: 10px; cursor: nesw-resize; }
+.resize-handle.bottom-left { bottom: -5px; left: -5px; width: 10px; height: 10px; cursor: nesw-resize; }
+.resize-handle.bottom-right { bottom: -5px; right: -5px; width: 10px; height: 10px; cursor: nwse-resize; }
+.resize-handle.top { top: -5px; left: 5px; right: 5px; height: 10px; cursor: ns-resize; }
+.resize-handle.bottom { bottom: -5px; left: 5px; right: 5px; height: 10px; cursor: ns-resize; }
+.resize-handle.left { top: 5px; bottom: 5px; left: -5px; width: 10px; cursor: ew-resize; }
+.resize-handle.right { top: 5px; bottom: 5px; right: -5px; width: 10px; cursor: ew-resize; }
 </style>

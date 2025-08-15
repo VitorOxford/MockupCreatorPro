@@ -53,13 +53,12 @@ export const useCanvasStore = defineStore('canvas', () => {
     previewZoom: 1,
     previewRenderScale: 1,
     isTransforming: false,
-    // --- NOVO SISTEMA DE PAINÉIS ---
     panels: {
         toolOptions: { isVisible: false, isPinned: false, position: { top: 80, left: 72 }, size: { width: 280, height: 'auto' } },
         layerHistory: { isVisible: false, isPinned: false, position: { top: 120, left: window.innerWidth - 336 }, size: { width: 320, height: 450 } },
         globalHistory: { isVisible: false, isPinned: false, position: { top: 160, left: window.innerWidth - 672 }, size: { width: 320, height: 450 } },
     },
-    historyModalTargetLayerId: null, // Mantido para saber qual histórico de camada abrir
+    historyModalTargetLayerId: null,
     lasso: {
       active: false,
       points: [],
@@ -118,7 +117,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     }
   })
 
-  // --- NOVAS FUNÇÕES DE ZOOM ---
   function zoomAtPoint(factor, point) {
       const { pan, zoom } = workspace;
       const worldX = (point.x - pan.x) / zoom;
@@ -169,7 +167,6 @@ export const useCanvasStore = defineStore('canvas', () => {
       workspace.pan.y = canvasEl.clientHeight / 2 - contentCenterY * newZoom;
   }
 
-  // --- NOVAS FUNÇÕES DE PAINEL ---
   function togglePanel(panelId, visible, targetLayerId = null) {
       if (!workspace.panels[panelId]) return;
 
@@ -179,7 +176,7 @@ export const useCanvasStore = defineStore('canvas', () => {
           workspace.panels[panelId].isVisible = !workspace.panels[panelId].isVisible;
       }
 
-      if (panelId === 'layerHistory') {
+      if (panelId === 'layerHistory' && visible) {
           workspace.historyModalTargetLayerId = targetLayerId;
       }
   }
@@ -275,7 +272,7 @@ export const useCanvasStore = defineStore('canvas', () => {
   }
 
   async function processAndAddLayer(newLayerData) {
-    const { name, type, imageUrl, metadata, initialPosition, file } = newLayerData;
+    const { name, type, imageUrl, metadata, initialPosition, file, initialScale } = newLayerData;
     const newLayer = createLayerObject(name, type, imageUrl, metadata);
 
     if (file) {
@@ -289,7 +286,7 @@ export const useCanvasStore = defineStore('canvas', () => {
           newLayer.image = proxyBitmap || imageBitmap;
           newLayer.fullResImage = imageBitmap;
           newLayer.lowResProxy = lowResProxy;
-          finalizeLayerAddition(newLayer, initialPosition);
+          finalizeLayerAddition(newLayer, initialPosition, initialScale);
         } else {
           console.error("Erro ao processar a imagem no worker:", payload);
           alert("Houve um erro ao carregar a imagem. Tente novamente.");
@@ -315,7 +312,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         newLayer.fullResImage = renderCanvas;
         newLayer.metadata.originalWidth = imageWidth;
         newLayer.metadata.originalHeight = imageHeight;
-        finalizeLayerAddition(newLayer, initialPosition);
+        finalizeLayerAddition(newLayer, initialPosition, initialScale);
       } catch (error) {
         console.error("Erro ao carregar e normalizar a imagem da web:", error);
         alert("Houve um erro ao carregar a imagem. Tente novamente.");
@@ -323,13 +320,14 @@ export const useCanvasStore = defineStore('canvas', () => {
     }
   }
 
-  function finalizeLayerAddition(newLayer, initialPosition) {
+  function finalizeLayerAddition(newLayer, initialPosition, initialScale = 1) {
       if (newLayer.type === 'mockup' && !initialPosition) {
         workspace.document.width = newLayer.metadata.originalWidth;
         workspace.document.height = newLayer.metadata.originalHeight;
       }
       newLayer.x = initialPosition ? initialPosition.x : workspace.document.width / 2;
       newLayer.y = initialPosition ? initialPosition.y : workspace.document.height / 2;
+      newLayer.scale = initialScale;
       updateLayerThumbnail(newLayer);
       layers.value.push(newLayer);
       layerHistoryStore.addLayerState(newLayer.id, getClonedLayerState(newLayer), 'Criação da Camada');
@@ -367,13 +365,13 @@ export const useCanvasStore = defineStore('canvas', () => {
     ctx.save();
     ctx.globalAlpha = brush.opacity;
     ctx.strokeStyle = primaryColor.value;
-    ctx.lineWidth = brush.size;
+    ctx.lineWidth = brush.size / layer.scale / workspace.zoom;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
     if (points.length < 2) {
         ctx.fillStyle = primaryColor.value;
-        ctx.arc(points[0].x, points[0].y, brush.size / 2, 0, Math.PI * 2);
+        ctx.arc(points[0].x, points[0].y, (brush.size / layer.scale / workspace.zoom) / 2, 0, Math.PI * 2);
         ctx.fill();
     } else {
         ctx.moveTo(points[0].x, points[0].y);
@@ -399,13 +397,13 @@ export const useCanvasStore = defineStore('canvas', () => {
     ctx.globalCompositeOperation = 'destination-out'
     ctx.globalAlpha = eraser.opacity
     ctx.strokeStyle = 'rgba(0,0,0,1)'
-    ctx.lineWidth = eraser.size
+    ctx.lineWidth = eraser.size / layer.scale / workspace.zoom;
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.beginPath();
     if (points.length < 2) {
       ctx.fillStyle = 'rgba(0,0,0,1)';
-      ctx.arc(points[0].x, points[0].y, eraser.size / 2, 0, Math.PI * 2);
+      ctx.arc(points[0].x, points[0].y, (eraser.size / layer.scale / workspace.zoom) / 2, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.moveTo(points[0].x, points[0].y);
@@ -514,7 +512,26 @@ export const useCanvasStore = defineStore('canvas', () => {
     workspace.document.height = newHeightPx;
   }
 
-    function showContextMenu(visible, position = { x: 0, y: 0 }, layerId = null) { workspace.isContextMenuVisible = visible; workspace.contextMenuPosition = position; workspace.contextMenuTargetLayerId = layerId; if (visible && layerId) selectLayer(layerId); }
+    function showContextMenu(visible, position = { x: 0, y: 0 }, layerId = null) {
+      const menuWidth = 260;
+      const menuHeight = 400; // Estimativa da altura máxima do menu
+      const { innerWidth, innerHeight } = window;
+
+      let x = position.x;
+      let y = position.y;
+
+      if (x + menuWidth > innerWidth) {
+        x = innerWidth - menuWidth - 5;
+      }
+      if (y + menuHeight > innerHeight) {
+        y = innerHeight - menuHeight - 5;
+      }
+
+      workspace.isContextMenuVisible = visible;
+      workspace.contextMenuPosition = { x, y };
+      workspace.contextMenuTargetLayerId = layerId;
+      if (visible && layerId) selectLayer(layerId);
+    }
     function showSelectionContextMenu(visible, position = { x: 0, y: 0 }) { workspace.isSelectionContextMenuVisible = visible; workspace.selectionContextMenuPosition = position; }
     function showResizeModal(visible) { workspace.isResizeModalVisible = visible; }
     function frameLayer(layerId) { const layer = layers.value.find((l) => l.id === layerId); const canvasEl = document.getElementById('mainCanvas'); if (!layer || !canvasEl || !layer.metadata.originalWidth) return; const padding = 0.8; const layerWidth = layer.metadata.originalWidth * layer.scale; const layerHeight = layer.metadata.originalHeight * layer.scale; const zoomX = (canvasEl.clientWidth * padding) / layerWidth; const zoomY = (canvasEl.clientHeight * padding) / layerHeight; const newZoom = Math.min(zoomX, zoomY, 2); workspace.zoom = newZoom; workspace.pan.x = canvasEl.clientWidth / 2 - layer.x * newZoom; workspace.pan.y = canvasEl.clientHeight / 2 - layer.y * newZoom; }
@@ -548,9 +565,41 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     function flipLayer(axis) { if (!selectedLayer.value) return; const prop = axis === 'horizontal' ? 'flipH' : 'flipV'; const currentFlip = selectedLayer.value.adjustments[prop]; updateLayerAdjustments(selectedLayer.value.id, { [prop]: !currentFlip }); }
     function rotateLayer(degrees) { if (!selectedLayer.value) return; const originalState = getClonedLayerState(selectedLayer.value); const newRotation = selectedLayer.value.rotation + (degrees * Math.PI) / 180; updateLayerProperties(selectedLayer.value.id, { rotation: newRotation }); layerHistoryStore.addLayerState(selectedLayer.value.id, originalState, 'Rodar 90°'); updateLayerThumbnail(selectedLayer.value); }
-    function duplicateLayer(layerId) { const sourceLayer = layers.value.find((l) => l.id === layerId); if (!sourceLayer) return; if (sourceLayer.image instanceof ImageBitmap) { const canvas = document.createElement('canvas'); canvas.width = sourceLayer.image.width; canvas.height = sourceLayer.image.height; canvas.getContext('2d').drawImage(sourceLayer.image, 0, 0); sourceLayer.image = canvas; } globalHistoryStore.addState(getClonedGlobalState(), 'Duplicar Camada'); const newCanvas = document.createElement('canvas'); newCanvas.width = sourceLayer.image.width; newCanvas.height = sourceLayer.image.height; newCanvas.getContext('2d').drawImage(sourceLayer.image, 0, 0); const newLayerData = reactive({ id: uuidv4(), name: `${sourceLayer.name} Cópia`, type: sourceLayer.type, visible: sourceLayer.visible, opacity: sourceLayer.opacity, imageUrl: sourceLayer.imageUrl, x: sourceLayer.x + 20, y: sourceLayer.y + 20, scale: sourceLayer.scale, rotation: sourceLayer.rotation, metadata: JSON.parse(JSON.stringify(sourceLayer.metadata)), adjustments: JSON.parse(JSON.stringify(sourceLayer.adjustments)), image: newCanvas, fullResImage: sourceLayer.fullResImage, originalFile: sourceLayer.originalFile, version: 1, }); const sourceIndex = layers.value.findIndex((l) => l.id === layerId); layers.value.splice(sourceIndex + 1, 0, newLayerData); layerHistoryStore.addLayerState(newLayerData.id, getClonedLayerState(newLayerData), 'Criação da Camada'); selectLayer(newLayerData.id); }
+    function duplicateLayer(layerId) {
+      const sourceLayer = layers.value.find((l) => l.id === layerId);
+      if (!sourceLayer) return;
 
-  function mergeDown(layerId) {
+      globalHistoryStore.addState(getClonedGlobalState(), 'Duplicar Camada');
+
+      const newLayerData = reactive({
+        ...JSON.parse(JSON.stringify(sourceLayer)),
+        id: uuidv4(),
+        name: `${sourceLayer.name} Cópia`,
+        x: sourceLayer.x + 20,
+        y: sourceLayer.y + 20,
+        image: null,
+        version: 1,
+      });
+
+      const newCanvas = document.createElement('canvas');
+      newCanvas.width = sourceLayer.image.width;
+      newCanvas.height = sourceLayer.image.height;
+      newCanvas.getContext('2d').drawImage(sourceLayer.image, 0, 0);
+      newLayerData.image = newCanvas;
+
+      newLayerData.fullResImage = sourceLayer.fullResImage;
+      newLayerData.lowResProxy = sourceLayer.lowResProxy;
+      newLayerData.originalFile = sourceLayer.originalFile;
+      newLayerData.imageUrl = sourceLayer.imageUrl;
+
+      const sourceIndex = layers.value.findIndex((l) => l.id === layerId);
+      layers.value.splice(sourceIndex + 1, 0, newLayerData);
+
+      layerHistoryStore.addLayerState(newLayerData.id, getClonedLayerState(newLayerData), 'Criação da Camada');
+      selectLayer(newLayerData.id);
+    }
+
+  async function mergeDown(layerId) {
     const topLayerIndex = layers.value.findIndex(l => l.id === layerId);
     if (topLayerIndex <= 0) return;
 
@@ -560,8 +609,19 @@ export const useCanvasStore = defineStore('canvas', () => {
     const bottomLayer = layers.value[topLayerIndex - 1];
 
     if (!topLayer.image || !bottomLayer.image) return;
-    if (topLayer.image instanceof ImageBitmap) { const canvas = document.createElement('canvas'); canvas.width = topLayer.image.width; canvas.height = topLayer.image.height; canvas.getContext('2d').drawImage(topLayer.image, 0, 0); topLayer.image = canvas; }
-    if (bottomLayer.image instanceof ImageBitmap) { const canvas = document.createElement('canvas'); canvas.width = bottomLayer.image.width; canvas.height = bottomLayer.image.height; canvas.getContext('2d').drawImage(bottomLayer.image, 0, 0); bottomLayer.image = canvas; }
+
+    // Assegura que temos um canvas para trabalhar, convertendo de ImageBitmap se necessário
+    const getCanvasFromImage = (image) => {
+        if (image instanceof HTMLCanvasElement) return image;
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        canvas.getContext('2d').drawImage(image, 0, 0);
+        return canvas;
+    };
+
+    const topCanvas = getCanvasFromImage(topLayer.image);
+    const bottomCanvas = getCanvasFromImage(bottomLayer.image);
 
     const originalBottomState = getClonedLayerState(bottomLayer);
 
@@ -588,45 +648,49 @@ export const useCanvasStore = defineStore('canvas', () => {
     tempCanvas.height = newHeight;
     const tempCtx = tempCanvas.getContext('2d');
 
+    // Desenha a camada de baixo
     tempCtx.save();
     tempCtx.translate(bottomLayer.x - minX, bottomLayer.y - minY);
     tempCtx.rotate(bottomLayer.rotation);
     tempCtx.scale(bottomLayer.scale, bottomLayer.scale);
-    tempCtx.drawImage(bottomLayer.image, -bottomLayer.metadata.originalWidth / 2, -bottomLayer.metadata.originalHeight / 2);
+    tempCtx.drawImage(bottomCanvas, -bottomLayer.metadata.originalWidth / 2, -bottomLayer.metadata.originalHeight / 2);
     tempCtx.restore();
 
+    // Desenha a camada de cima
     tempCtx.save();
     tempCtx.globalAlpha = topLayer.opacity;
     tempCtx.translate(topLayer.x - minX, topLayer.y - minY);
     tempCtx.rotate(topLayer.rotation);
     tempCtx.scale(topLayer.scale, topLayer.scale);
-    tempCtx.drawImage(topLayer.image, -topLayer.metadata.originalWidth / 2, -topLayer.metadata.originalHeight / 2);
+    tempCtx.drawImage(topCanvas, -topLayer.metadata.originalWidth / 2, -topLayer.metadata.originalHeight / 2);
     tempCtx.restore();
 
-    bottomLayer.image.width = newWidth;
-    bottomLayer.image.height = newHeight;
-    const bottomCtx = bottomLayer.image.getContext('2d');
-    bottomCtx.clearRect(0, 0, newWidth, newHeight);
-    bottomCtx.drawImage(tempCanvas, 0, 0);
-
+    // Atualiza a camada de baixo com a imagem mesclada
+    bottomLayer.image = tempCanvas;
     bottomLayer.metadata.originalWidth = newWidth;
     bottomLayer.metadata.originalHeight = newHeight;
     bottomLayer.x = minX + newWidth / 2;
     bottomLayer.y = minY + newHeight / 2;
     bottomLayer.scale = 1;
     bottomLayer.rotation = 0;
-    bottomLayer.version++;
 
+    // Recria os proxies para corrigir o bug de arrastar
+    bottomLayer.fullResImage = await createImageBitmap(tempCanvas);
+    const LOW_RES_PROXY_SIZE = 1000;
+    const lowResRatio = Math.min(LOW_RES_PROXY_SIZE / newWidth, LOW_RES_PROXY_SIZE / newHeight, 1);
+    bottomLayer.lowResProxy = await createImageBitmap(tempCanvas, {
+        resizeWidth: Math.round(newWidth * lowResRatio),
+        resizeHeight: Math.round(newHeight * lowResRatio),
+        resizeQuality: 'low',
+    });
+    bottomLayer.image = bottomLayer.fullResImage; // Usa a imagem de alta resolução para exibição
+
+    bottomLayer.version++;
     layerHistoryStore.addLayerState(bottomLayer.id, originalBottomState, 'Mesclar Camada');
     updateLayerThumbnail(bottomLayer);
 
-    const topLayerToDelete = layers.value[topLayerIndex];
-    if (topLayerToDelete.imageUrl && topLayerToDelete.imageUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(topLayerToDelete.imageUrl);
-    }
     layers.value.splice(topLayerIndex, 1);
     layerHistoryStore.clearLayerHistory(layerId);
-
     selectLayer(bottomLayer.id);
   }
 
@@ -634,8 +698,28 @@ export const useCanvasStore = defineStore('canvas', () => {
     function getSelectionBoundingBoxCenter() { if (workspace.lasso.points.length > 2) { const bbox = workspace.lasso.boundingBox; return { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 }; } if (workspace.selection.width > 0) { const sel = workspace.selection; return { x: Math.min(sel.startX, sel.endX) + sel.width / 2, y: Math.min(sel.startY, sel.endY) + sel.height / 2 }; } return selectedLayer.value ? { x: selectedLayer.value.x, y: selectedLayer.value.y } : { x: 0, y: 0 }; }
     function copySelectionToClipboard() { if (!selectedLayer.value || !isSelectionActive.value) return; const selectionData = createImageFromSelection(selectedLayer.value, false); if (selectionData) { copiedSelection.value = { ...selectionData, metadata: selectedLayer.value.metadata, }; } clearSelection(); }
     function pasteSelection() { if (!copiedSelection.value) return; globalHistoryStore.addState(getClonedGlobalState(), 'Colar Seleção'); processAndAddLayer({ name: 'Seleção Colada', type: 'pattern', imageUrl: copiedSelection.value.imageDataUrl, metadata: { dpi: copiedSelection.value.metadata.dpi || 96, originalWidth: copiedSelection.value.width, originalHeight: copiedSelection.value.height, }, initialPosition: { x: workspace.document.width / 2, y: workspace.document.height / 2 }, }); }
-    function duplicateSelection() { if (!selectedLayer.value || !isSelectionActive.value) return; globalHistoryStore.addState(getClonedGlobalState(), 'Duplicar Seleção'); const selectionData = createImageFromSelection(selectedLayer.value, false); if (selectionData) { const center = getSelectionBoundingBoxCenter(); processAndAddLayer({ name: `${selectedLayer.value.name} Cópia`, type: selectedLayer.value.type, imageUrl: selectionData.imageDataUrl, metadata: { dpi: selectedLayer.value.metadata.dpi, originalWidth: selectionData.width, originalHeight: selectionData.height, }, initialPosition: center, }); } clearSelection(); }
-    function cutoutSelection() { if (!selectedLayer.value || !isSelectionActive.value) return; globalHistoryStore.addState(getClonedGlobalState(), 'Recortar para Nova Camada'); const selectionData = createImageFromSelection(selectedLayer.value, true); if (selectionData) { const center = getSelectionBoundingBoxCenter(); processAndAddLayer({ name: `${selectedLayer.value.name} Recorte`, type: selectedLayer.value.type, imageUrl: selectionData.imageDataUrl, metadata: { dpi: selectedLayer.value.metadata.dpi, originalWidth: selectionData.width, originalHeight: selectionData.height, }, initialPosition: center, }); } clearSelection(); }
+    function duplicateSelection() {
+      if (!selectedLayer.value || !isSelectionActive.value) return;
+      globalHistoryStore.addState(getClonedGlobalState(), 'Duplicar Seleção');
+      const selectionData = createImageFromSelection(selectedLayer.value, false);
+      if (selectionData) {
+        const center = getSelectionBoundingBoxCenter();
+        processAndAddLayer({
+          name: `${selectedLayer.value.name} Cópia`,
+          type: selectedLayer.value.type,
+          imageUrl: selectionData.imageDataUrl,
+          metadata: {
+            dpi: selectedLayer.value.metadata.dpi,
+            originalWidth: selectionData.width,
+            originalHeight: selectionData.height,
+          },
+          initialPosition: center,
+          initialScale: selectedLayer.value.scale, // <-- **A CORREÇÃO PRINCIPAL**
+        });
+      }
+      clearSelection();
+    }
+    function cutoutSelection() { if (!selectedLayer.value || !isSelectionActive.value) return; globalHistoryStore.addState(getClonedGlobalState(), 'Recortar para Nova Camada'); const selectionData = createImageFromSelection(selectedLayer.value, true); if (selectionData) { const center = getSelectionBoundingBoxCenter(); processAndAddLayer({ name: `${selectedLayer.value.name} Recorte`, type: selectedLayer.value.type, imageUrl: selectionData.imageDataUrl, metadata: { dpi: selectedLayer.value.metadata.dpi, originalWidth: selectionData.width, originalHeight: selectionData.height, }, initialPosition: center, initialScale: selectedLayer.value.scale }); } clearSelection(); }
     function setBrushOption(option, value) { brush[option] = value; }
     function setEraserOption(option, value) { eraser[option] = value; }
     function setPrimaryColor(color) { primaryColor.value = color; }
@@ -712,7 +796,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     undoLastAction, updateLayerFromHistory, setGlobalState,
     getClonedLayerState, commitLayerStateToHistory,
     setTransformingState,
-    // EXPORTA AS NOVAS FUNÇÕES
     togglePanel, updatePanelState, getPanelState,
     zoomIn, zoomOut, zoomToFit,
   }
