@@ -49,7 +49,7 @@ function handleDrop(event, reversedIndex) {
 }
 
 function handleContextMenu(event, layerId) {
-  // Adiciona a opção de abrir o histórico da camada ao menu de contexto
+  event.preventDefault();
   store.showContextMenu(true, { x: event.clientX, y: event.clientY }, layerId)
 }
 </script>
@@ -58,12 +58,15 @@ function handleContextMenu(event, layerId) {
   <aside class="layers-panel">
     <div class="panel-header">
       <h4>Camadas</h4>
-      <button
-        @click="isAssetsPanelVisible = !isAssetsPanelVisible"
-        class="btn btn-primary add-layer-btn"
-      >
-        + Adicionar
-      </button>
+       <div class="header-actions">
+        <button @click="store.togglePanel('globalHistory', true)" title="Histórico Global">📜</button>
+        <button
+            @click="isAssetsPanelVisible = !isAssetsPanelVisible"
+            class="btn btn-primary add-layer-btn"
+        >
+            + Adicionar
+        </button>
+      </div>
     </div>
     <div class="layers-list">
       <div v-if="store.layers.length === 0" class="empty-state">
@@ -84,7 +87,7 @@ function handleContextMenu(event, layerId) {
           class="layer-item"
           :class="{ active: store.selectedLayerId === layer.id }"
           @click="store.selectLayer(layer.id)"
-          @contextmenu.prevent="handleContextMenu($event, layer.id)"
+          @contextmenu="handleContextMenu($event, layer.id)"
         >
           <div class="layer-thumbnail">
             <img v-if="layer.imageUrl" :src="layer.imageUrl" :alt="layer.name" />
@@ -93,20 +96,7 @@ function handleContextMenu(event, layerId) {
 
           <div class="layer-actions">
             <button
-              @click.stop="store.bringForward(layer.id)"
-              :disabled="index === 0"
-              title="Trazer para a frente"
-            >
-              <svg viewBox="0 0 24 24"><path d="M12 8l-6 6h12l-6-6z" /></svg>
-            </button>
-            <button
-              @click.stop="store.sendBackward(layer.id)"
-              :disabled="index === reversedLayers.length - 1"
-              title="Enviar para trás"
-            >
-              <svg viewBox="0 0 24 24"><path d="M12 16l6-6H6l6 6z" /></svg>
-            </button>
-            <button @click.stop="toggleVisibility(layer)" title="Mostrar/Ocultar Camada">
+              @click.stop="toggleVisibility(layer)" title="Mostrar/Ocultar Camada">
               <svg v-if="layer.visible" viewBox="0 0 24 24">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                 <circle cx="12" cy="12" r="3" />
@@ -118,19 +108,8 @@ function handleContextMenu(event, layerId) {
                 <line x1="1" y1="1" x2="23" y2="23" />
               </svg>
             </button>
-            <button
-              class="delete-btn"
-              @click.stop="store.deleteLayer(layer.id)"
-              title="Apagar Camada"
-            >
-              <svg viewBox="0 0 24 24">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path
-                  d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                ></path>
-                <line x1="10" y1="11" x2="10" y2="17"></line>
-                <line x1="14" y1="11" x2="14" y2="17"></line>
-              </svg>
+            <button @click.stop="handleContextMenu($event, layer.id)" title="Mais Opções">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
             </button>
           </div>
         </div>
@@ -155,7 +134,6 @@ function handleContextMenu(event, layerId) {
 </template>
 
 <style scoped>
-/* Estilos permanecem os mesmos */
 .layers-panel {
   grid-area: layers;
   background-color: var(--c-surface);
@@ -178,9 +156,27 @@ function handleContextMenu(event, layerId) {
   font-weight: var(--fw-semibold);
   margin: 0;
 }
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+.header-actions button {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-1);
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+.header-actions button:hover {
+    background-color: var(--c-surface-dark);
+    border-color: var(--c-border);
+}
 .add-layer-btn {
   padding: var(--spacing-1) var(--spacing-3);
   font-size: var(--fs-sm);
+  border: none !important;
 }
 .layers-list {
   flex-grow: 1;
@@ -245,7 +241,7 @@ function handleContextMenu(event, layerId) {
 }
 .layer-item:hover .layer-name,
 .layer-item.active .layer-name {
-  max-width: 60px;
+  max-width: 120px;
 }
 .layer-actions button {
   width: 28px;
@@ -272,10 +268,6 @@ function handleContextMenu(event, layerId) {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-.layer-actions .delete-btn:hover {
-  background-color: #ffdddd;
-  color: #ff3333;
 }
 .layer-item.active {
   background-color: var(--c-primary);

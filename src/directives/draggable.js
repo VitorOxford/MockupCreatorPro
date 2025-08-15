@@ -5,20 +5,26 @@ export const draggable = {
     let offsetY = 0;
     let isDragging = false;
 
-    // Procura por um handle específico, senão usa o próprio elemento
     const handle = el.querySelector('.draggable-handle') || el;
     handle.style.cursor = 'move';
 
+    // Acessa a store a partir do contexto da aplicação
     const store = binding.instance?.$pinia.state.value.canvas;
-    const panelId = el.__vueParentComponent.props.panelId;
+    const panelId = binding.value?.panelId;
+
+    if (!store || !panelId) {
+        console.error('Draggable directive requires a panelId and access to the canvas store.');
+        return;
+    }
 
     const onMouseDown = (e) => {
-      // Impede o drag se o clique for num input, botão, ou handle de resize
       if (e.target.closest('input, button, .resize-handle')) return;
       if (e.button !== 0) return;
 
       isDragging = true;
       const rect = el.getBoundingClientRect();
+
+      // Calcula o offset em relação à posição do painel, não ao viewport
       offsetX = e.clientX - rect.left;
       offsetY = e.clientY - rect.top;
 
@@ -28,19 +34,22 @@ export const draggable = {
 
     const onMouseMove = (e) => {
       if (!isDragging) return;
-      el.style.top = `${e.clientY - offsetY}px`;
-      el.style.left = `${e.clientX - offsetX}px`;
+
+      const newTop = e.clientY - offsetY;
+      const newLeft = e.clientX - offsetX;
+
+      el.style.top = `${newTop}px`;
+      el.style.left = `${newLeft}px`;
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = (e) => {
       if (!isDragging) return;
       isDragging = false;
 
       // Salva a posição final na store
-      if (store && panelId) {
-        store.panels[panelId].position.top = parseInt(el.style.top, 10);
-        store.panels[panelId].position.left = parseInt(el.style.left, 10);
-      }
+      const newTop = e.clientY - offsetY;
+      const newLeft = e.clientX - offsetX;
+      store.updatePanelState(panelId, { position: { top: newTop, left: newLeft } });
 
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
@@ -50,6 +59,8 @@ export const draggable = {
 
     el.__vDraggableCleanup = () => {
       handle.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
     };
   },
   unmounted(el) {

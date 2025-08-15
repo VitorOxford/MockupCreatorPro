@@ -64,11 +64,10 @@ const menus = [
       },
     ],
   },
-  // NOVO MENU
   {
     name: 'Histórico',
     items: [
-        { name: 'Ver Histórico Global...', action: () => store.showGlobalHistoryModal(true) }
+        { name: 'Ver Histórico Global...', action: () => store.togglePanel('globalHistory', true) }
     ]
   }
 ]

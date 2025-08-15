@@ -1,18 +1,15 @@
 <script setup>
-import { computed } from 'vue'; // <--- CORREÇÃO AQUI
+import { computed } from 'vue';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { historyActionIcons } from '@/utils/icons'; // Importa os ícones
+import { historyActionIcons } from '@/utils/icons';
+import FloatingPanel from '@/components/common/FloatingPanel.vue';
 
 const historyStore = useHistoryStore();
 const canvasStore = useCanvasStore();
 
-const isVisible = computed(() => canvasStore.workspace.isGlobalHistoryModalVisible);
-const position = computed(() => canvasStore.workspace.globalHistoryModalPosition);
-
 function getIconPath(actionName) {
-  const mainAction = actionName.split(' ')[0]; // Pega a primeira palavra, ex: "Adicionar"
-  const iconKey = Object.keys(historyActionIcons).find(key => actionName.includes(key));
+  const iconKey = Object.keys(historyActionIcons).find(key => actionName.toLowerCase().includes(key.toLowerCase()));
   return historyActionIcons[iconKey] || historyActionIcons['default'];
 }
 
@@ -29,21 +26,10 @@ function handleRevertClick(index) {
   historyStore.revertToState(originalIndex);
 }
 
-function closeModal() {
-  canvasStore.showGlobalHistoryModal(false);
-}
 </script>
 
 <template>
-  <div
-    v-if="isVisible"
-    class="history-modal"
-    :style="{ top: `${position.top}px`, left: `${position.left}px` }"
-  >
-    <header class="modal-header">
-      <h4>Histórico Global</h4>
-      <button class="close-btn" @click="closeModal">&times;</button>
-    </header>
+  <FloatingPanel panel-id="globalHistory" title="Histórico Global">
     <div class="history-list">
       <div v-if="historyStore.history.length === 0" class="empty-state">
         Nenhuma ação global registada.
@@ -68,44 +54,15 @@ function closeModal() {
         <span class="timestamp">{{ formatTimestamp(item.timestamp) }}</span>
       </div>
     </div>
-  </div>
+  </FloatingPanel>
 </template>
 
 <style scoped>
-.history-modal {
-  position: fixed; /* MUDADO para posicionamento fixo */
-  width: 320px;
-  max-height: 500px;
-  background-color: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--c-border);
-  flex-shrink: 0;
-}
-h4 {
-  font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  margin: 0;
-}
-.close-btn {
-  font-size: 1.5rem;
-  color: var(--c-text-secondary);
-}
 .history-list {
   flex-grow: 1;
   overflow-y: auto;
   padding: var(--spacing-2);
+  height: 100%; /* Garante que a lista ocupe o espaço disponível */
 }
 .history-item {
   display: grid;

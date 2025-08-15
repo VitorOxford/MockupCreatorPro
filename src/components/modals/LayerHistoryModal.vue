@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useLayerHistoryStore } from '@/stores/layerHistoryStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { historyActionIcons } from '@/utils/icons';
+import FloatingPanel from '@/components/common/FloatingPanel.vue';
 
 const layerHistoryStore = useLayerHistoryStore();
 const canvasStore = useCanvasStore();
@@ -11,12 +12,6 @@ const activeTab = ref('');
 
 const targetLayerId = computed(() => canvasStore.workspace.historyModalTargetLayerId);
 const targetLayer = computed(() => canvasStore.layers.find(l => l.id === targetLayerId.value));
-
-const modalPosition = computed(() => {
-  const pos = canvasStore.workspace.layerHistoryModalPosition;
-  const leftOffset = window.innerWidth - 320 - 16;
-  return { top: `${pos.y}px`, left: `${leftOffset}px` };
-});
 
 const groupedHistory = computed(() => {
   if (!targetLayerId.value || !layerHistoryStore.historyByLayer[targetLayerId.value]) {
@@ -45,15 +40,13 @@ const groupedHistory = computed(() => {
   return groups;
 });
 
-// Observa o histórico agrupado e define a primeira aba como ativa quando o modal abre
 watch(groupedHistory, (newGroups) => {
-  if (newGroups.length > 0 && !activeTab.value) {
+  if (newGroups.length > 0 && (!activeTab.value || !newGroups.some(g => g.name === activeTab.value))) {
     activeTab.value = newGroups[0].name;
   }
 });
 
-// Limpa a aba ativa quando o modal fecha
-watch(() => canvasStore.workspace.isLayerHistoryModalVisible, (isVisible) => {
+watch(() => canvasStore.workspace.panels.layerHistory.isVisible, (isVisible) => {
     if (!isVisible) {
         activeTab.value = '';
     }
@@ -79,100 +72,55 @@ function handleRevertClick(originalIndex) {
 </script>
 
 <template>
-  <div
-    v-if="canvasStore.workspace.isLayerHistoryModalVisible"
-    class="modal-overlay"
-    @click.self="canvasStore.showLayerHistoryModal(false)"
-  >
-    <div class="history-modal" :style="modalPosition">
-      <header class="modal-header">
-        <h4 :title="targetLayer?.name">Histórico: {{ targetLayer?.name }}</h4>
-        <button class="close-btn" @click="canvasStore.showLayerHistoryModal(false)">&times;</button>
-      </header>
-
-      <div class="tabs-nav">
-        <button
-          v-for="group in groupedHistory"
-          :key="group.name"
-          class="tab-button"
-          :class="{ active: activeTab === group.name }"
-          @click="activeTab = group.name"
-        >
-          <svg
-            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-          >
-            <path :d="getIconPath(group.name)"></path>
-          </svg>
-          <span>{{ group.name }}</span>
-        </button>
-      </div>
-
-      <div class="history-list">
-        <div v-if="groupedHistory.length === 0" class="empty-state">
-          Nenhuma alteração registada.
-        </div>
-        <template v-for="group in groupedHistory" :key="group.name">
-          <div v-if="activeTab === group.name" class="tab-content">
-            <div
-              v-for="item in group.items"
-              :key="item.timestamp"
-              class="history-item"
-              :class="{ active: item.originalIndex === layerHistoryStore.historyByLayer[targetLayerId]?.currentIndex }"
-              @click="handleRevertClick(item.originalIndex)"
-            >
-              <span class="timestamp">{{ formatTimestamp(item.timestamp) }}</span>
-              <span class="revert-text">Reverter para este ponto</span>
+    <FloatingPanel v-if="targetLayer" panel-id="layerHistory" :title="`Histórico: ${targetLayer.name}`">
+       <div class="panel-body">
+            <div class="tabs-nav">
+                <button
+                v-for="group in groupedHistory"
+                :key="group.name"
+                class="tab-button"
+                :class="{ active: activeTab === group.name }"
+                @click="activeTab = group.name"
+                >
+                <svg
+                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                >
+                    <path :d="getIconPath(group.name)"></path>
+                </svg>
+                <span>{{ group.name }}</span>
+                </button>
             </div>
-          </div>
-        </template>
-      </div>
-    </div>
-  </div>
+
+            <div class="history-list">
+                <div v-if="groupedHistory.length === 0" class="empty-state">
+                Nenhuma alteração registada.
+                </div>
+                <template v-for="group in groupedHistory" :key="group.name">
+                <div v-if="activeTab === group.name" class="tab-content">
+                    <div
+                    v-for="item in group.items"
+                    :key="item.timestamp"
+                    class="history-item"
+                    :class="{ active: item.originalIndex === layerHistoryStore.historyByLayer[targetLayerId]?.currentIndex }"
+                    @click="handleRevertClick(item.originalIndex)"
+                    >
+                    <span class="timestamp">{{ formatTimestamp(item.timestamp) }}</span>
+                    <span class="revert-text">Reverter para este ponto</span>
+                    </div>
+                </div>
+                </template>
+            </div>
+       </div>
+    </FloatingPanel>
 </template>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 1500;
-  background-color: transparent;
-}
-.history-modal {
-  position: fixed;
-  width: 320px;
-  max-height: 70vh;
-  background-color: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: 1501;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--c-border);
-  flex-shrink: 0;
-}
-h4 {
-  font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.close-btn {
-  font-size: 1.5rem;
-  color: var(--c-text-secondary);
+.panel-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
 }
 .tabs-nav {
   display: flex;

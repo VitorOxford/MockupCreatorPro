@@ -6,117 +6,173 @@ import { useImageAdjustmentsStore } from '@/stores/imageAdjustmentsStore'
 const store = useCanvasStore()
 const adjustmentsStore = useImageAdjustmentsStore()
 
-const isLassoSelectionActive = computed(() => store.workspace.lasso.points.length > 2)
+const targetLayerId = computed(() => store.workspace.contextMenuTargetLayerId);
+const targetLayer = computed(() => store.layers.find(l => l.id === targetLayerId.value));
 
 const canMergeDown = computed(() => {
-    if (!store.workspace.contextMenuTargetLayerId) return false;
-    const index = store.layers.findIndex(l => l.id === store.workspace.contextMenuTargetLayerId);
+    if (!targetLayerId.value) return false;
+    const index = store.layers.findIndex(l => l.id === targetLayerId.value);
     return index > 0;
 });
 
 function onClick(action) {
-  action()
-  store.showContextMenu(false)
+  if(action) action();
+  store.showContextMenu(false);
 }
 </script>
 
 <template>
   <div
-    class="context-menu"
-    :style="{
-      top: `${store.workspace.contextMenuPosition.y}px`,
-      left: `${store.workspace.contextMenuPosition.x}px`,
-    }"
+    class="context-menu-overlay"
+    @click.self="onClick()"
+    @contextmenu.prevent.self="onClick()"
   >
-    <ul>
-      <li @click="onClick(() => store.duplicateLayer(store.workspace.contextMenuTargetLayerId))">
-        Duplicar Camada
-      </li>
-      <li :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(store.workspace.contextMenuTargetLayerId))">
-        Mesclar para Baixo
-      </li>
-      <li class="divider"></li>
-      <li @click="onClick(() => store.showLayerHistoryModal(true, store.workspace.contextMenuTargetLayerId, store.workspace.contextMenuPosition))">
-        Histórico de Alterações...
-      </li>
-      <li class="divider"></li>
-      <li
-        :class="{ disabled: !isLassoSelectionActive }"
-        @click="
-          isLassoSelectionActive &&
-          onClick(() => store.duplicateSelection(store.workspace.contextMenuTargetLayerId))
-        "
-      >
-        Duplicar Seleção
-      </li>
-      <li
-        :class="{ disabled: !isLassoSelectionActive }"
-        @click="
-          isLassoSelectionActive &&
-          onClick(() => store.cutoutSelection(store.workspace.contextMenuTargetLayerId))
-        "
-      >
-        Recortar Seleção para Nova Camada
-      </li>
-      <li class="divider"></li>
-      <li @click="onClick(() => adjustmentsStore.openModal())">Ajustes de Imagem...</li>
-      <li @click="onClick(() => store.showResizeModal(true))">Redimensionar</li>
-      <li class="divider"></li>
-      <li @click="onClick(() => store.rotateLayer(90))">Rodar 90° Horário</li>
-      <li @click="onClick(() => store.flipLayer('horizontal'))">Inverter Horizontalmente</li>
-      <li @click="onClick(() => store.flipLayer('vertical'))">Inverter Verticalmente</li>
-      <li class="divider"></li>
-      <li
-        @click="onClick(() => store.deleteLayer(store.workspace.contextMenuTargetLayerId))"
-        class="danger"
-      >
-        Apagar Camada
-      </li>
-    </ul>
+    <div
+        class="context-menu"
+        :style="{
+        top: `${store.workspace.contextMenuPosition.y}px`,
+        left: `${store.workspace.contextMenuPosition.x}px`,
+        }"
+    >
+        <div class="menu-section">
+            <div class="menu-item" @click="onClick(() => store.zoomIn())">
+                <span class="icon">➕</span>
+                <span class="text">Aproximar Zoom</span>
+                <span class="shortcut">Ctrl +</span>
+            </div>
+            <div class="menu-item" @click="onClick(() => store.zoomOut())">
+                <span class="icon">➖</span>
+                <span class="text">Afastar Zoom</span>
+                <span class="shortcut">Ctrl -</span>
+            </div>
+            <div class="menu-item" @click="onClick(() => store.zoomToFit())">
+                <span class="icon">🎯</span>
+                <span class="text">Ajustar à Tela</span>
+                 <span class="shortcut">Ctrl 0</span>
+            </div>
+        </div>
+
+        <template v-if="targetLayer">
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+                 <div class="menu-item" @click="onClick(() => store.duplicateLayer(targetLayerId))">
+                    <span class="icon">📋</span>
+                    <span class="text">Duplicar Camada</span>
+                </div>
+                <div class="menu-item" :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(targetLayerId))">
+                    <span class="icon">📥</span>
+                    <span class="text">Mesclar para Baixo</span>
+                </div>
+                 <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
+                    <span class="icon">📜</span>
+                    <span class="text">Histórico de Alterações...</span>
+                </div>
+            </div>
+            <div class="menu-divider"></div>
+             <div class="menu-section">
+                <div class="menu-item" @click="onClick(() => adjustmentsStore.openModal())">
+                    <span class="icon">🎨</span>
+                    <span class="text">Ajustes de Imagem...</span>
+                </div>
+                <div class="menu-item" @click="onClick(() => store.showResizeModal(true))">
+                     <span class="icon">📏</span>
+                    <span class="text">Redimensionar</span>
+                </div>
+            </div>
+             <div class="menu-divider"></div>
+            <div class="menu-section">
+                <div class="menu-item" @click="onClick(() => store.flipLayer('horizontal'))">
+                    <span class="icon">↔️</span>
+                    <span class="text">Inverter Horizontalmente</span>
+                </div>
+                <div class="menu-item" @click="onClick(() => store.flipLayer('vertical'))">
+                     <span class="icon">↕️</span>
+                    <span class="text">Inverter Verticalmente</span>
+                </div>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+                <div class="menu-item danger" @click="onClick(() => store.deleteLayer(targetLayerId))">
+                    <span class="icon">🗑️</span>
+                    <span class="text">Apagar Camada</span>
+                </div>
+            </div>
+        </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* O CSS deste ficheiro permanece igual */
+.context-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 999;
+}
 .context-menu {
   position: absolute;
   background-color: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   z-index: 1000;
-  padding: var(--spacing-2) 0;
+  padding: var(--spacing-2);
+  width: 260px;
+  backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.8);
 }
-ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.menu-section {
+    display: flex;
+    flex-direction: column;
 }
-li {
-  padding: var(--spacing-2) var(--spacing-4);
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  white-space: nowrap;
+.menu-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center;
+    gap: var(--spacing-3);
+    padding: var(--spacing-2) var(--spacing-3);
+    cursor: pointer;
+    font-size: var(--fs-sm);
+    white-space: nowrap;
+    border-radius: var(--radius-md);
+    transition: background-color 0.1s ease-in-out;
 }
-li:hover {
-  background-color: var(--c-surface-dark);
-  color: var(--c-primary);
+.menu-item:hover {
+  background-color: var(--c-primary);
+  color: var(--c-white);
 }
-li.disabled {
+.menu-item:hover .shortcut {
+    color: rgba(255, 255, 255, 0.7);
+}
+.menu-item .icon {
+    font-size: 16px;
+    text-align: center;
+}
+.menu-item .text {
+    font-weight: var(--fw-medium);
+}
+.menu-item .shortcut {
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    justify-self: end;
+}
+.menu-item.disabled {
   color: var(--c-text-tertiary);
   cursor: not-allowed;
   background-color: transparent !important;
 }
-li.divider {
+.menu-divider {
   height: 1px;
   background: var(--c-border);
-  padding: 0;
-  margin: var(--spacing-2) 0;
+  margin: var(--spacing-2);
 }
-li.danger {
+.menu-item.danger {
   color: #ff3333;
 }
-li.danger:hover {
-  background-color: #ffdddd;
+.menu-item.danger:hover {
+  background-color: #ff3333;
+  color: white;
 }
 </style>

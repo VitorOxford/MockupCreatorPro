@@ -3,10 +3,11 @@ import { computed, ref } from 'vue'
 import { useCanvasStore } from '@/stores/canvasStore'
 import BrushPreview from '@/components/common/BrushPreview.vue'
 import ColorWheelPicker from '@/components/common/ColorWheelPicker.vue'
-import { draggable } from '@/directives/draggable.js' // <-- IMPORTA A NOVA DIRECTIVE
+import FloatingPanel from '@/components/common/FloatingPanel.vue'
 
 const store = useCanvasStore()
 const showColorPicker = ref(false)
+const activeOptionsTab = ref('brush') // Controla a aba de opções visível
 
 const presets = [
   { name: 'Pincel Duro', settings: { size: 5, hardness: 0.95 } },
@@ -22,37 +23,37 @@ const palette = [
   '#9900ff', '#ff00ff', '#ffccff', '#cc66ff'
 ]
 
-const activeTool = computed(() => store.activeTool)
-
 function applyPreset(preset) {
   store.setBrushOption('size', preset.settings.size)
   store.setBrushOption('hardness', preset.settings.hardness)
 }
+
+function selectToolAndTab(tool, tab) {
+    store.setActiveTool(tool);
+    activeOptionsTab.value = tab;
+}
 </script>
 
 <template>
-  <div v-if="store.workspace.isBrushSidebarVisible">
-    <aside
-      class="tool-options-panel"
-      v-draggable
-    >
-        <header class="panel-header draggable-handle">
-            <h5 class="panel-title">Opções da Ferramenta</h5>
-            <div class="panel-actions">
-                <button
-                  class="pin-btn"
-                  :class="{ 'is-pinned': store.workspace.isBrushSidebarPinned }"
-                  @click="store.togglePinBrushSidebar"
-                  title="Fixar painel"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M10 17h4M16 4.5l-4-4-4 4M16 4.5V12a4 4 0 0 1-4 4h0a4 4 0 0 1-4-4V4.5"/></svg>
-                </button>
-                <button class="close-btn" @click="store.toggleBrushSidebar(false)">&times;</button>
-            </div>
-        </header>
-
+  <div>
+    <FloatingPanel panel-id="toolOptions" title="Opções da Ferramenta">
         <div class="panel-content">
-            <div v-if="activeTool === 'brush' || activeTool === 'bucket'" class="panel-section">
+            <div class="tool-tabs">
+                <button :class="{active: activeOptionsTab === 'brush'}" @click="selectToolAndTab('brush', 'brush')" title="Pincel (B)">
+                     <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                </button>
+                <button :class="{active: activeOptionsTab === 'eraser'}" @click="selectToolAndTab('eraser', 'eraser')" title="Borracha (E)">
+                    <svg viewBox="0 0 24 24"><path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2Z M10 12H4M10 16H4M14 12h6M14 16h6"></path></svg>
+                </button>
+                 <button :class="{active: activeOptionsTab === 'bucket'}" @click="selectToolAndTab('bucket', 'bucket')" title="Lata de Tinta (G)">
+                    <svg viewBox="0 0 24 24"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z M5 2l5 5 M22 9l-8.5 20.5 m-2.5-12 3-3"></path></svg>
+                </button>
+                 <button :class="{active: activeOptionsTab === 'magic-wand'}" @click="selectToolAndTab('magic-wand', 'magic-wand')" title="Varinha Mágica (W)">
+                   <svg viewBox="0 0 24 24"><path d="M9.5 2.5l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4zM2 13l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4z"></path></svg>
+                </button>
+            </div>
+
+            <div v-if="activeOptionsTab === 'brush' || activeOptionsTab === 'bucket'" class="panel-section">
                 <div class="color-selection-header">
                 <div
                     class="color-swatch"
@@ -78,47 +79,51 @@ function applyPreset(preset) {
                 </div>
             </div>
 
-            <div class="divider" v-if="activeTool === 'brush' || activeTool === 'bucket'"></div>
+            <div class="divider" v-if="activeOptionsTab === 'brush' || activeOptionsTab === 'bucket'"></div>
 
             <div class="panel-section">
-                <div v-if="activeTool === 'magic-wand'">
-                <h5 class="section-title">Opções da Varinha Mágica</h5>
-                <div class="control-group">
-                    <label>Tolerância: {{ store.workspace.magicWand.tolerance }}</label>
-                    <input type="range" min="0" max="255" v-model.number="store.workspace.magicWand.tolerance" class="slider" />
-                </div>
-                <div class="control-group checkbox-group">
-                    <input type="checkbox" id="contiguous-check" v-model="store.workspace.magicWand.contiguous" />
-                    <label for="contiguous-check">Contíguo</label>
-                </div>
-                </div>
-
-                <div v-else-if="activeTool === 'eraser'">
-                <h5 class="section-title">Opções da Borracha</h5>
-                <div class="control-group">
-                    <label>Tamanho: {{ store.eraser.size.toFixed(0) }} px</label>
-                    <input type="range" min="1" max="500" v-model.number="store.eraser.size" @input="store.setEraserOption('size', parseFloat($event.target.value))" class="slider"/>
-                </div>
-                <div class="control-group">
-                    <label>Intensidade: {{ (store.eraser.opacity * 100).toFixed(0) }}%</label>
-                    <input type="range" min="0" max="1" step="0.01" v-model.number="store.eraser.opacity" @input="store.setEraserOption('opacity', parseFloat($event.target.value))" class="slider"/>
-                </div>
+                <div v-if="activeOptionsTab === 'magic-wand'">
+                  <h5 class="section-title">Opções da Varinha Mágica</h5>
+                  <div class="control-group">
+                      <label>Tolerância: {{ store.workspace.magicWand.tolerance }}</label>
+                      <input type="range" min="0" max="255" v-model.number="store.workspace.magicWand.tolerance" class="slider" />
+                  </div>
+                  <div class="control-group checkbox-group">
+                      <input type="checkbox" id="contiguous-check" v-model="store.workspace.magicWand.contiguous" />
+                      <label for="contiguous-check">Contíguo</label>
+                  </div>
                 </div>
 
-                <div v-else-if="activeTool === 'brush' || activeTool === 'bucket'">
-                <h5 class="section-title">Opções do Pincel</h5>
-                <div class="control-group">
-                    <label>Tamanho: {{ store.brush.size.toFixed(0) }} px</label>
-                    <input type="range" min="1" max="500" v-model.number="store.brush.size" @input="store.setBrushOption('size', parseFloat($event.target.value))" class="slider"/>
+                <div v-else-if="activeOptionsTab === 'eraser'">
+                  <h5 class="section-title">Opções da Borracha</h5>
+                  <div class="control-group">
+                      <label>Tamanho: {{ store.eraser.size.toFixed(0) }} px</label>
+                      <input type="range" min="1" max="500" v-model.number="store.eraser.size" @input="store.setEraserOption('size', parseFloat($event.target.value))" class="slider"/>
+                  </div>
+                  <div class="control-group">
+                      <label>Intensidade: {{ (store.eraser.opacity * 100).toFixed(0) }}%</label>
+                      <input type="range" min="0" max="1" step="0.01" v-model.number="store.eraser.opacity" @input="store.setEraserOption('opacity', parseFloat($event.target.value))" class="slider"/>
+                  </div>
                 </div>
-                <div class="control-group">
-                    <label>Dureza: {{ (store.brush.hardness * 100).toFixed(0) }}%</label>
-                    <input type="range" min="0" max="1" step="0.01" v-model.number="store.brush.hardness" @input="store.setBrushOption('hardness', parseFloat($event.target.value))" class="slider"/>
-                </div>
+
+                <div v-else-if="activeOptionsTab === 'brush' || activeOptionsTab === 'bucket'">
+                  <h5 class="section-title">Opções do Pincel</h5>
+                  <div class="control-group">
+                      <label>Tamanho: {{ store.brush.size.toFixed(0) }} px</label>
+                      <input type="range" min="1" max="500" v-model.number="store.brush.size" @input="store.setBrushOption('size', parseFloat($event.target.value))" class="slider"/>
+                  </div>
+                   <div class="control-group">
+                      <label>Opacidade: {{ (store.brush.opacity * 100).toFixed(0) }}%</label>
+                      <input type="range" min="0" max="1" step="0.01" v-model.number="store.brush.opacity" @input="store.setBrushOption('opacity', parseFloat($event.target.value))" class="slider"/>
+                  </div>
+                  <div class="control-group">
+                      <label>Dureza: {{ (store.brush.hardness * 100).toFixed(0) }}%</label>
+                      <input type="range" min="0" max="1" step="0.01" v-model.number="store.brush.hardness" @input="store.setBrushOption('hardness', parseFloat($event.target.value))" class="slider"/>
+                  </div>
                 </div>
             </div>
 
-            <div v-if="activeTool === 'brush'" class="panel-section presets">
+            <div v-if="activeOptionsTab === 'brush'" class="panel-section presets">
                 <div class="divider"></div>
                 <h5 class="section-title">Pré-definições de Pincel</h5>
                 <div class="preset-list">
@@ -129,84 +134,58 @@ function applyPreset(preset) {
                 </div>
             </div>
         </div>
-    </aside>
+    </FloatingPanel>
     <ColorWheelPicker v-if="showColorPicker" @close="showColorPicker = false" />
   </div>
 </template>
 
 <style scoped>
-.tool-options-panel {
-  position: absolute;
-  top: 80px;
-  left: calc(var(--sidebar-width) + 12px);
-  width: 280px;
-  min-height: 200px;
-  background-color: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: 205;
-  display: flex;
-  flex-direction: column;
-  resize: both;
-  overflow: hidden;
-}
-.panel-header {
+/* A maior parte dos estilos é herdada do FloatingPanel, aqui estilizamos o conteúdo específico */
+.panel-content {
+    padding: 0;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-2) var(--spacing-3);
-    border-bottom: 1px solid var(--c-border);
+    flex-direction: column;
+}
+.tool-tabs {
+    display: flex;
     background-color: var(--c-surface-dark);
+    padding: var(--spacing-2);
+    gap: var(--spacing-2);
     flex-shrink: 0;
 }
-.panel-title {
-    font-weight: var(--fw-semibold);
-    color: var(--c-text-primary);
-    margin: 0;
-}
-.panel-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-1);
-}
-.pin-btn, .close-btn {
-    width: 28px;
-    height: 28px;
+.tool-tabs button {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: var(--spacing-2);
+    border-radius: var(--radius-md);
     color: var(--c-text-secondary);
-    border-radius: var(--radius-sm);
 }
-.pin-btn:hover, .close-btn:hover {
+.tool-tabs button:hover {
     background-color: var(--c-border);
 }
-.pin-btn.is-pinned {
-    color: var(--c-white);
+.tool-tabs button.active {
     background-color: var(--c-primary);
+    color: var(--c-white);
 }
-.close-btn {
-    font-size: 1.5rem;
-    line-height: 1;
-}
-.panel-content {
-    padding: var(--spacing-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-4);
-    overflow-y: auto;
-    flex-grow: 1;
+.tool-tabs button svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2;
+    fill: none;
+    stroke: currentColor;
 }
 .panel-section {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3);
+  padding: var(--spacing-4);
 }
 .divider {
   height: 1px;
   background-color: var(--c-border);
-  margin: calc(var(--spacing-2) * -1) 0;
+  margin: 0;
 }
 .section-title {
   font-size: var(--fs-xs);

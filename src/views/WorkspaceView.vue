@@ -14,8 +14,9 @@ import SelectionContextMenu from '@/components/common/SelectionContextMenu.vue'
 import ResizeModal from '@/components/modals/ResizeModal.vue'
 import PreviewSidebar from '@/components/preview/PreviewSidebar.vue'
 import SignatureModal from '@/components/modals/SignatureModal.vue'
+
+// -- OS PAINÉIS AGORA SÃO FLUTUANTES E REUTILIZÁVEIS --
 import ToolOptionsPanel from '@/components/layout/BrushSidebar.vue'
-// IMPORTA OS NOVOS MODAIS
 import GlobalHistoryModal from '@/components/modals/GlobalHistoryModal.vue'
 import LayerHistoryModal from '@/components/modals/LayerHistoryModal.vue'
 
@@ -36,11 +37,22 @@ function handleWrapperClick() {
   }
 }
 
-// LÓGICA PARA O ATALHO CTRL+Z
 function handleKeyDown(e) {
   if (e.ctrlKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     store.undoLastAction();
+  }
+   if (e.ctrlKey && (e.key === '+' || e.key === '=')) {
+    e.preventDefault();
+    store.zoomIn();
+  }
+  if (e.ctrlKey && e.key === '-') {
+    e.preventDefault();
+    store.zoomOut();
+  }
+   if (e.ctrlKey && e.key === '0') {
+    e.preventDefault();
+    store.zoomToFit();
   }
 }
 
@@ -65,7 +77,6 @@ onUnmounted(() => {
     <ToolsSidebar ref="toolsSidebarRef" :mode="store.workspace.viewMode" />
 
     <main class="canvas-container">
-      <ToolOptionsPanel v-if="store.workspace.isBrushSidebarVisible" />
 
       <div v-if="store.workspace.viewMode === 'edit'" class="edit-mode-wrapper">
         <CanvasArea>
@@ -88,13 +99,13 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <ContextMenu v-if="store.workspace.isContextMenuVisible" />
-      <SelectionContextMenu v-if="store.workspace.isSelectionContextMenuVisible" />
-      <ResizeModal v-if="store.workspace.isResizeModalVisible" />
-
+      <ToolOptionsPanel />
       <GlobalHistoryModal />
       <LayerHistoryModal />
 
+      <ContextMenu v-if="store.workspace.isContextMenuVisible" />
+      <SelectionContextMenu v-if="store.workspace.isSelectionContextMenuVisible" />
+      <ResizeModal v-if="store.workspace.isResizeModalVisible" />
       <PreviewSidebar />
       <SignatureModal />
     </main>

@@ -53,8 +53,13 @@ export const useCanvasStore = defineStore('canvas', () => {
     previewZoom: 1,
     previewRenderScale: 1,
     isTransforming: false,
-    isBrushSidebarVisible: false,
-    isBrushSidebarPinned: false, // <-- NOVO ESTADO PARA FIXAR
+    // --- NOVO SISTEMA DE PAINÉIS ---
+    panels: {
+        toolOptions: { isVisible: false, isPinned: false, position: { top: 80, left: 72 }, size: { width: 280, height: 'auto' } },
+        layerHistory: { isVisible: false, isPinned: false, position: { top: 120, left: window.innerWidth - 336 }, size: { width: 320, height: 450 } },
+        globalHistory: { isVisible: false, isPinned: false, position: { top: 160, left: window.innerWidth - 672 }, size: { width: 320, height: 450 } },
+    },
+    historyModalTargetLayerId: null, // Mantido para saber qual histórico de camada abrir
     lasso: {
       active: false,
       points: [],
@@ -85,11 +90,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     isResizeModalVisible: false,
     isPreviewSidebarVisible: false,
     isSignatureModalVisible: false,
-    isLayerHistoryModalVisible: false,
-    historyModalTargetLayerId: null,
-    layerHistoryModalPosition: { top: 0, left: 0 },
-    isGlobalHistoryModalVisible: false,
-    globalHistoryModalPosition: { top: 0, left: 0 },
   });
 
   const selectedLayer = computed(() => layers.value.find((l) => l.id === selectedLayerId.value));
@@ -117,6 +117,83 @@ export const useCanvasStore = defineStore('canvas', () => {
       y: 0,
     }
   })
+
+  // --- NOVAS FUNÇÕES DE ZOOM ---
+  function zoomAtPoint(factor, point) {
+      const { pan, zoom } = workspace;
+      const worldX = (point.x - pan.x) / zoom;
+      const worldY = (point.y - pan.y) / zoom;
+      const newZoom = Math.max(0.02, Math.min(zoom * factor, 10));
+      const newPanX = point.x - worldX * newZoom;
+      const newPanY = point.y - worldY * newZoom;
+      updateWorkspace({ zoom: newZoom, pan: { x: newPanX, y: newPanY } });
+  }
+
+  function zoomIn(factor = 1.2) {
+      const canvasEl = document.getElementById('mainCanvas');
+      if (!canvasEl) return;
+      const center = { x: canvasEl.clientWidth / 2, y: canvasEl.clientHeight / 2 };
+      zoomAtPoint(factor, center);
+  }
+
+  function zoomOut(factor = 1.2) {
+      zoomIn(1 / factor);
+  }
+
+  function zoomToFit() {
+      const canvasEl = document.getElementById('mainCanvas');
+      if (!canvasEl || layers.value.length === 0) return;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      layers.value.forEach(layer => {
+          const halfW = (layer.metadata.originalWidth * layer.scale) / 2;
+          const halfH = (layer.metadata.originalHeight * layer.scale) / 2;
+          minX = Math.min(minX, layer.x - halfW);
+          minY = Math.min(minY, layer.y - halfH);
+          maxX = Math.max(maxX, layer.x + halfW);
+          maxY = Math.max(maxY, layer.y + halfH);
+      });
+
+      const contentWidth = maxX - minX;
+      const contentHeight = maxY - maxY;
+      const contentCenterX = minX + contentWidth / 2;
+      const contentCenterY = minY + contentHeight / 2;
+
+      const padding = 0.9;
+      const zoomX = (canvasEl.clientWidth * padding) / contentWidth;
+      const zoomY = (canvasEl.clientHeight * padding) / contentHeight;
+      const newZoom = Math.min(zoomX, zoomY, 2);
+
+      workspace.zoom = newZoom;
+      workspace.pan.x = canvasEl.clientWidth / 2 - contentCenterX * newZoom;
+      workspace.pan.y = canvasEl.clientHeight / 2 - contentCenterY * newZoom;
+  }
+
+  // --- NOVAS FUNÇÕES DE PAINEL ---
+  function togglePanel(panelId, visible, targetLayerId = null) {
+      if (!workspace.panels[panelId]) return;
+
+      if (typeof visible === 'boolean') {
+          workspace.panels[panelId].isVisible = visible;
+      } else {
+          workspace.panels[panelId].isVisible = !workspace.panels[panelId].isVisible;
+      }
+
+      if (panelId === 'layerHistory') {
+          workspace.historyModalTargetLayerId = targetLayerId;
+      }
+  }
+
+  function updatePanelState(panelId, newState) {
+      if (workspace.panels[panelId]) {
+          Object.assign(workspace.panels[panelId], newState);
+      }
+  }
+
+  function getPanelState(panelId) {
+      return workspace.panels[panelId];
+  }
+
 
   function updateLayerThumbnail(layer) {
     if (layer && layer.image) {
@@ -259,6 +336,21 @@ export const useCanvasStore = defineStore('canvas', () => {
       globalHistoryStore.addState(getClonedGlobalState(), `Adicionar Camada: ${newLayer.name}`);
       selectLayer(newLayer.id);
       if (!initialPosition) frameLayer(newLayer.id);
+  }
+
+  function setActiveTool(tool) {
+      activeTool.value = tool;
+      if (!tool || (!tool.includes('select') && tool !== 'magic-wand')) {
+        clearSelection();
+      }
+
+      const isPaintTool = tool === 'brush' || tool === 'eraser' || tool === 'magic-wand' || tool === 'bucket';
+
+      if (isPaintTool && !workspace.panels.toolOptions.isVisible) {
+          togglePanel('toolOptions', true);
+      } else if (!isPaintTool && !workspace.panels.toolOptions.isPinned) {
+          togglePanel('toolOptions', false);
+      }
   }
 
   function applyPaintToLayer(points) {
@@ -440,35 +532,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     function moveLayer(fromIndex, toIndex) { globalHistoryStore.addState(getClonedGlobalState(), 'Mover Camada'); const [movedLayer] = layers.value.splice(fromIndex, 1); layers.value.splice(toIndex, 0, movedLayer); }
     function toggleViewMode() { workspace.viewMode = workspace.viewMode === 'edit' ? 'preview' : 'edit'; if (workspace.viewMode === 'edit' && selectedLayer.value) { frameLayer(selectedLayer.value.id); } }
     function getSupabaseImageUrl(bucket, path) { if (!bucket || !path) return null; const { data } = supabase.storage.from(bucket).getPublicUrl(path); return data.publicUrl; }
-
-    // --- LÓGICA DO PAINEL DE FERRAMENTAS ATUALIZADA ---
-    function setActiveTool(tool) {
-      activeTool.value = tool;
-      if (!tool || (!tool.includes('select') && tool !== 'magic-wand')) {
-        clearSelection();
-      }
-
-      const isPaintTool = tool === 'brush' || tool === 'eraser' || tool === 'magic-wand' || tool === 'bucket';
-
-      if (isPaintTool && !workspace.isBrushSidebarVisible) {
-        workspace.isBrushSidebarVisible = true;
-      } else if (!isPaintTool && !workspace.isBrushSidebarPinned) {
-        workspace.isBrushSidebarVisible = false;
-      }
-    }
-
-    function toggleBrushSidebar(visible) {
-        workspace.isBrushSidebarVisible = visible;
-        if (!visible) {
-            workspace.isBrushSidebarPinned = false; // Desafixa ao fechar
-        }
-    }
-
-    function togglePinBrushSidebar() {
-        workspace.isBrushSidebarPinned = !workspace.isBrushSidebarPinned;
-    }
-
-
     function updateWorkspace(properties) { Object.assign(workspace, properties); }
     function showPreviewSidebar(visible) { workspace.isPreviewSidebarVisible = visible; }
     function showSignatureModal(visible) { workspace.isSignatureModalVisible = visible; }
@@ -633,21 +696,6 @@ export const useCanvasStore = defineStore('canvas', () => {
       selectedLayerId.value = stateToRestore.workspace.selectedLayerId || null;
   }
 
-  function showLayerHistoryModal(visible, layerId = null, position = null) {
-      workspace.isLayerHistoryModalVisible = visible;
-      workspace.historyModalTargetLayerId = layerId;
-      if (position) {
-        workspace.layerHistoryModalPosition = position;
-      }
-  }
-
-  function showGlobalHistoryModal(visible, position = null) {
-      workspace.isGlobalHistoryModalVisible = visible;
-      if (position) {
-          workspace.globalHistoryModalPosition = position;
-      }
-  }
-
   function setTransformingState(isTransforming) {
     workspace.isTransforming = isTransforming;
   }
@@ -662,11 +710,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     pasteSelection, duplicateSelection, cutoutSelection, applyPaintToLayer, floodFillLayer, setBrushOption, setEraserOption, setPrimaryColor,
     eraseFromLayer, mergeDown, selectWithMagicWand,
     undoLastAction, updateLayerFromHistory, setGlobalState,
-    showLayerHistoryModal,
-    showGlobalHistoryModal,
     getClonedLayerState, commitLayerStateToHistory,
     setTransformingState,
-    toggleBrushSidebar, // <-- EXPORTA AS NOVAS FUNÇÕES
-    togglePinBrushSidebar,
+    // EXPORTA AS NOVAS FUNÇÕES
+    togglePanel, updatePanelState, getPanelState,
+    zoomIn, zoomOut, zoomToFit,
   }
 })
