@@ -9,26 +9,23 @@ export const resizable = {
 
     const handles = el.querySelectorAll('.resize-handle');
     let originalWidth, originalHeight, originalX, originalY, originalMouseX, originalMouseY;
-    let currentHandleType; // Variável para guardar a alça atual
+    let currentHandleType;
 
     const onMouseMove = (e) => {
       e.preventDefault();
+      const event = e.touches ? e.touches[0] : e;
+
       window.requestAnimationFrame(() => {
         let newWidth = originalWidth;
         let newHeight = originalHeight;
         let newLeft = el.offsetLeft;
         let newTop = el.offsetTop;
 
-        const dx = e.clientX - originalMouseX;
-        const dy = e.clientY - originalMouseY;
+        const dx = event.clientX - originalMouseX;
+        const dy = event.clientY - originalMouseY;
 
-        // Usa a variável 'currentHandleType' que foi definida no mousedown
-        if (currentHandleType.includes('right')) {
-          newWidth = originalWidth + dx;
-        }
-        if (currentHandleType.includes('bottom')) {
-          newHeight = originalHeight + dy;
-        }
+        if (currentHandleType.includes('right')) newWidth = originalWidth + dx;
+        if (currentHandleType.includes('bottom')) newHeight = originalHeight + dy;
         if (currentHandleType.includes('left')) {
           newWidth = originalWidth - dx;
           newLeft = originalX + dx;
@@ -38,11 +35,11 @@ export const resizable = {
           newTop = originalY + dy;
         }
 
-        if (newWidth > 250) { // Largura mínima
+        if (newWidth > 250) {
           el.style.width = `${newWidth}px`;
           el.style.left = `${newLeft}px`;
         }
-        if (newHeight > 150) { // Altura mínima
+        if (newHeight > 150) {
           el.style.height = `${newHeight}px`;
           el.style.top = `${newTop}px`;
         }
@@ -51,7 +48,10 @@ export const resizable = {
 
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('touchmove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchend', onMouseUp);
+
 
       const rect = el.getBoundingClientRect();
       store.updatePanelState(panelId, {
@@ -59,26 +59,36 @@ export const resizable = {
       });
     };
 
-    handles.forEach(handle => {
-      handle.addEventListener('mousedown', (e) => {
+    const onMouseDown = (e) => {
         e.preventDefault();
         e.stopPropagation();
 
-        currentHandleType = e.target.dataset.handle; // Captura a alça no início
+        const event = e.touches ? e.touches[0] : e;
+
+        currentHandleType = e.target.dataset.handle;
         originalWidth = el.offsetWidth;
         originalHeight = el.offsetHeight;
         originalX = el.offsetLeft;
         originalY = el.offsetTop;
-        originalMouseX = e.clientX;
-        originalMouseY = e.clientY;
+        originalMouseX = event.clientX;
+        originalMouseY = event.clientY;
 
         document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('touchmove', onMouseMove, { passive: false });
         document.addEventListener('mouseup', onMouseUp, { once: true });
-      });
+        document.addEventListener('touchend', onMouseUp, { once: true });
+    };
+
+    handles.forEach(handle => {
+      handle.addEventListener('mousedown', onMouseDown);
+      handle.addEventListener('touchstart', onMouseDown, { passive: false });
     });
 
     el.__vResizableCleanup = () => {
-      // Lógica de limpeza, se necessário
+       handles.forEach(handle => {
+          handle.removeEventListener('mousedown', onMouseDown);
+          handle.removeEventListener('touchstart', onMouseDown);
+       });
     };
   },
   unmounted(el) {

@@ -170,13 +170,12 @@ function initCanvas() {
   ctx = canvasRef.value.getContext('2d')
   setupEventListeners()
 
-  // Usa o ResizeObserver para reagir a mudanças de tamanho do layout
   resizeObserver = new ResizeObserver(() => {
     resizeCanvas();
   });
   resizeObserver.observe(wrapperRef.value);
 
-  resizeCanvas(); // Chamada inicial
+  resizeCanvas();
 }
 
 function resizeCanvas() {
@@ -191,10 +190,17 @@ function resizeCanvas() {
 
 function setupEventListeners() {
   const canvas = canvasRef.value
+  // Mouse Events
   canvas.addEventListener('mousedown', handleMouseDown)
   document.addEventListener('mousemove', handleMouseMove)
   document.addEventListener('mouseup', handleMouseUp)
   document.addEventListener('mouseleave', handleMouseUp)
+  // Touch Events
+  canvas.addEventListener('touchstart', handleTouchStart, { passive: false })
+  canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
+  canvas.addEventListener('touchend', handleTouchEnd)
+  canvas.addEventListener('touchcancel', handleTouchEnd)
+
   canvas.addEventListener('wheel', handleWheel, { passive: false })
   canvas.addEventListener('contextmenu', handleContextMenu)
 }
@@ -209,10 +215,33 @@ function cleanupEventListeners() {
   const canvas = canvasRef.value
   if (canvas) {
     canvas.removeEventListener('mousedown', handleMouseDown)
+    canvas.removeEventListener('touchstart', handleTouchStart)
+    canvas.removeEventListener('touchmove', handleTouchMove)
+    canvas.removeEventListener('touchend', handleTouchEnd)
+    canvas.removeEventListener('touchcancel', handleTouchEnd)
     canvas.removeEventListener('wheel', handleWheel)
     canvas.removeEventListener('contextmenu', handleContextMenu)
   }
 }
+
+function getEventCoordinates(e) {
+    const rect = canvasRef.value.getBoundingClientRect();
+    if (e.touches && e.touches.length > 0) {
+        return {
+            offsetX: e.touches[0].clientX - rect.left,
+            offsetY: e.touches[0].clientY - rect.top,
+            clientX: e.touches[0].clientX,
+            clientY: e.touches[0].clientY
+        };
+    }
+    return {
+        offsetX: e.offsetX,
+        offsetY: e.offsetY,
+        clientX: e.clientX,
+        clientY: e.clientY
+    };
+}
+
 
 function onHandleMouseDown({ event, type, cursor }) {
   event.preventDefault()
@@ -223,7 +252,8 @@ function onHandleMouseDown({ event, type, cursor }) {
   store.setTransformingState(true);
   actionStartState = store.getClonedLayerState(store.selectedLayer);
   currentActionName = type === 'rotate' ? 'Rodar' : 'Redimensionar';
-  const mouse = { x: event.clientX, y: event.clientY }
+  const coords = getEventCoordinates(event);
+  const mouse = { x: coords.clientX, y: coords.clientY }
   const layer = store.selectedLayer
   if (type === 'rotate') {
     const layerScreenPos = getLayerScreenCenter(layer)
@@ -243,201 +273,224 @@ function handleContextMenu(e) {
   }
 }
 
+function handleInteractionStart(e) {
+    if (store.workspace.isContextMenuVisible) store.showContextMenu(false);
+    if (store.workspace.isSelectionContextMenuVisible) store.showSelectionContextMenu(false);
+
+    const coords = getEventCoordinates(e);
+    const mouse = { x: coords.offsetX, y: coords.offsetY };
+    const worldMouse = screenToWorkspaceCoords(mouse);
+    const clickedLayer = getLayerAtPosition(mouse);
+
+    if (clickedLayer && store.selectedLayerId !== clickedLayer.id) {
+        store.selectLayer(clickedLayer.id);
+    }
+
+    const layerCoords = store.selectedLayer ? screenToLayerCoords(mouse, store.selectedLayer) : null;
+
+    switch (store.activeTool) {
+        case 'magic-wand':
+            if (!layerCoords) return alert('Selecione uma camada para usar a varinha mágica.');
+            isWandSelecting = true;
+            store.selectWithMagicWand(layerCoords, e.shiftKey);
+            break;
+        case 'brush':
+            if (!layerCoords) return;
+            isPainting = true;
+            actionStartState = store.getClonedLayerState(store.selectedLayer);
+            currentActionName = 'Pintura';
+            currentStroke = [layerCoords];
+            store.applyPaintToLayer(currentStroke);
+            break;
+        case 'bucket':
+            if (!layerCoords) return alert('Selecione uma camada para pintar.');
+            store.floodFillLayer(layerCoords.x, layerCoords.y);
+            break;
+        case 'eyedropper':
+            const pixel = ctx.getImageData(mouse.x, mouse.y, 1, 1).data;
+            const hex = "#" + ("000000" + ((pixel[0] << 16) | (pixel[1] << 8) | pixel[2]).toString(16)).slice(-6);
+            store.setPrimaryColor(hex);
+            store.setActiveTool('brush');
+            break;
+        case 'eraser':
+            if (!layerCoords) return alert('Selecione uma camada para apagar.');
+            isErasing = true;
+            actionStartState = store.getClonedLayerState(store.selectedLayer);
+            currentActionName = 'Apagar';
+            currentStroke = [layerCoords];
+            store.eraseFromLayer(currentStroke);
+            break;
+        case 'rect-select':
+            isDrawingSelection = true;
+            store.startSelection(worldMouse);
+            break;
+        case 'lasso-select':
+            isDrawingSelection = true;
+            store.startLasso(worldMouse);
+            break;
+        case 'move':
+            if (clickedLayer) {
+                isDraggingLayer = true;
+                store.setTransformingState(true);
+                actionStartState = store.getClonedLayerState(clickedLayer);
+                currentActionName = 'Mover';
+                const worldMouseCoords = screenToWorkspaceCoords(mouse);
+                dragStartOffset = { x: worldMouseCoords.x - clickedLayer.x, y: worldMouseCoords.y - clickedLayer.y };
+            } else {
+                isPanning = true;
+                lastPanPosition = { x: coords.clientX, y: coords.clientY };
+                canvasRef.value.style.cursor = 'grabbing';
+            }
+            break;
+        default:
+            isPanning = true;
+            lastPanPosition = { x: coords.clientX, y: coords.clientY };
+            canvasRef.value.style.cursor = 'grabbing';
+            break;
+    }
+}
+
+
+function handleInteractionMove(e) {
+    const coords = getEventCoordinates(e);
+    const mouse = { x: coords.clientX, y: coords.clientY };
+    const canvasMouse = { x: coords.offsetX, y: coords.offsetY };
+    const worldMouse = screenToWorkspaceCoords(canvasMouse);
+
+    if (isWandSelecting && store.selectedLayer) {
+        const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
+        store.selectWithMagicWand(layerCoords, true);
+        return;
+    }
+
+    if (isPainting && store.selectedLayer) {
+        const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
+        currentStroke.push(layerCoords);
+        store.applyPaintToLayer(currentStroke.slice(-2));
+        return;
+    }
+
+    if (isErasing && store.selectedLayer) {
+        const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
+        currentStroke.push(layerCoords);
+        store.eraseFromLayer(currentStroke.slice(-2));
+        return;
+    }
+
+    if (isTransformingLayer) {
+        if (transformType === 'rotate') {
+            const layer = store.selectedLayer
+            if (!layer) return
+            const layerScreenPos = getLayerScreenCenter(layer)
+            const currentAngle = Math.atan2(mouse.y - layerScreenPos.y, mouse.x - layerScreenPos.x)
+            store.updateLayerRotation(currentAngle)
+        } else if (transformType && transformType.startsWith('resize')) {
+            store.updateLayerResize(mouse)
+        }
+        return
+    }
+
+    if (isDrawingSelection) {
+        if (store.activeTool === 'rect-select') store.updateSelection(worldMouse)
+        if (store.activeTool === 'lasso-select') store.updateLasso(worldMouse)
+        return
+    }
+
+    if (isDraggingLayer && store.selectedLayer) {
+        const newX = worldMouse.x - dragStartOffset.x
+        const newY = worldMouse.y - dragStartOffset.y
+        store.updateLayerProperties(store.selectedLayer.id, { x: newX, y: newY })
+        return
+    }
+    if (isPanning) {
+        const dx = coords.clientX - lastPanPosition.x
+        const dy = coords.clientY - lastPanPosition.y
+        store.updateWorkspace({ pan: { x: store.workspace.pan.x + dx, y: store.workspace.pan.y + dy } })
+        lastPanPosition = { x: coords.clientX, y: coords.clientY }
+    }
+}
+
+function handleInteractionEnd(e) {
+    if (store.workspace.isTransforming) {
+        store.setTransformingState(false);
+        requestAnimationFrame(renderCanvas);
+    }
+
+    const coords = getEventCoordinates(e.changedTouches ? e.changedTouches[0] : e);
+    const mousePosition = { x: coords.clientX, y: coords.clientY };
+
+    if (actionStartState && currentActionName) {
+        if(store.selectedLayer) {
+            store.commitLayerStateToHistory(store.selectedLayer.id, actionStartState, currentActionName);
+        }
+        actionStartState = null;
+        currentActionName = null;
+    }
+
+    if (isWandSelecting) {
+        isWandSelecting = false;
+        if (store.isSelectionActive) {
+            store.showSelectionContextMenu(true, mousePosition);
+        }
+    }
+
+    if (isDrawingSelection) {
+        if (store.activeTool === 'rect-select') store.endSelection(mousePosition)
+        if (store.activeTool === 'lasso-select') store.endLasso(mousePosition)
+    }
+    if (isPainting || isErasing) {
+        isPainting = false;
+        isErasing = false;
+        currentStroke = [];
+    }
+    isPanning = false
+    isDraggingLayer = false
+    isTransformingLayer = false
+    isDrawingSelection = false
+    isWandSelecting = false;
+    document.body.style.cursor = 'default'
+
+    const cursorMap = {
+        'rect-select': 'crosshair',
+        'lasso-select': 'crosshair',
+        'magic-wand': 'crosshair',
+        brush: 'crosshair',
+        eraser: 'crosshair',
+        move: 'grab',
+    }
+    if (canvasRef.value) {
+        canvasRef.value.style.cursor = cursorMap[store.activeTool] || 'default'
+    }
+}
+
 function handleMouseDown(e) {
-  if (store.workspace.isContextMenuVisible) store.showContextMenu(false);
-  if (store.workspace.isSelectionContextMenuVisible) store.showSelectionContextMenu(false);
-  if (e.button !== 0) return;
-
-  const mouse = { x: e.offsetX, y: e.offsetY };
-  const worldMouse = screenToWorkspaceCoords(mouse);
-  const clickedLayer = getLayerAtPosition(mouse);
-
-  if (clickedLayer && store.selectedLayerId !== clickedLayer.id) {
-    store.selectLayer(clickedLayer.id);
-  }
-
-  const layerCoords = store.selectedLayer ? screenToLayerCoords(mouse, store.selectedLayer) : null;
-
-
-  switch (store.activeTool) {
-    case 'magic-wand':
-      if (!layerCoords) return alert('Selecione uma camada para usar a varinha mágica.');
-      isWandSelecting = true;
-      store.selectWithMagicWand(layerCoords, e.shiftKey);
-      break;
-
-    case 'brush':
-      if (!layerCoords) return;
-      isPainting = true;
-      actionStartState = store.getClonedLayerState(store.selectedLayer);
-      currentActionName = 'Pintura';
-      currentStroke = [layerCoords];
-      store.applyPaintToLayer(currentStroke);
-      break;
-
-    case 'bucket':
-      if (!layerCoords) return alert('Selecione uma camada para pintar.');
-      store.floodFillLayer(layerCoords.x, layerCoords.y);
-      break;
-
-    case 'eyedropper':
-      const pixel = ctx.getImageData(mouse.x, mouse.y, 1, 1).data;
-      const hex = "#" + ("000000" + ((pixel[0] << 16) | (pixel[1] << 8) | pixel[2]).toString(16)).slice(-6);
-      store.setPrimaryColor(hex);
-      store.setActiveTool('brush');
-      break;
-
-    case 'eraser':
-      if (!layerCoords) return alert('Selecione uma camada para apagar.');
-      isErasing = true;
-      actionStartState = store.getClonedLayerState(store.selectedLayer);
-      currentActionName = 'Apagar';
-      currentStroke = [layerCoords];
-      store.eraseFromLayer(currentStroke);
-      break;
-
-    case 'rect-select':
-      isDrawingSelection = true;
-      store.startSelection(worldMouse);
-      break;
-
-    case 'lasso-select':
-      isDrawingSelection = true;
-      store.startLasso(worldMouse);
-      break;
-
-    case 'move':
-      if (clickedLayer) {
-        isDraggingLayer = true;
-        store.setTransformingState(true);
-        actionStartState = store.getClonedLayerState(clickedLayer);
-        currentActionName = 'Mover';
-        const worldMouse = screenToWorkspaceCoords(mouse);
-        dragStartOffset = { x: worldMouse.x - clickedLayer.x, y: worldMouse.y - clickedLayer.y };
-      } else {
-        isPanning = true;
-        lastPanPosition = { x: e.clientX, y: e.clientY };
-        canvasRef.value.style.cursor = 'grabbing';
-      }
-      break;
-
-    default:
-      isPanning = true;
-      lastPanPosition = { x: e.clientX, y: e.clientY };
-      canvasRef.value.style.cursor = 'grabbing';
-      break;
-  }
+    if (e.button !== 0) return;
+    handleInteractionStart(e);
 }
 
 function handleMouseMove(e) {
-  const mouse = { x: e.clientX, y: e.clientY };
-  const canvasMouse = { x: e.offsetX, y: e.offsetY };
-  const worldMouse = screenToWorkspaceCoords(canvasMouse);
-
-  if (isWandSelecting && store.selectedLayer) {
-    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
-    store.selectWithMagicWand(layerCoords, true);
-    return;
-  }
-
-  if (isPainting && store.selectedLayer) {
-    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
-    currentStroke.push(layerCoords);
-    store.applyPaintToLayer(currentStroke.slice(-2));
-    return;
-  }
-
-  if (isErasing && store.selectedLayer) {
-    const layerCoords = screenToLayerCoords(canvasMouse, store.selectedLayer);
-    currentStroke.push(layerCoords);
-    store.eraseFromLayer(currentStroke.slice(-2));
-    return;
-  }
-
-  if (isTransformingLayer) {
-    if (transformType === 'rotate') {
-      const layer = store.selectedLayer
-      if (!layer) return
-      const layerScreenPos = getLayerScreenCenter(layer)
-      const currentAngle = Math.atan2(mouse.y - layerScreenPos.y, mouse.x - layerScreenPos.x)
-      store.updateLayerRotation(currentAngle)
-    } else if (transformType && transformType.startsWith('resize')) {
-      store.updateLayerResize(mouse)
-    }
-    return
-  }
-
-  if (isDrawingSelection) {
-    if (store.activeTool === 'rect-select') store.updateSelection(worldMouse)
-    if (store.activeTool === 'lasso-select') store.updateLasso(worldMouse)
-    return
-  }
-
-  if (isDraggingLayer && store.selectedLayer) {
-    const newX = worldMouse.x - dragStartOffset.x
-    const newY = worldMouse.y - dragStartOffset.y
-    store.updateLayerProperties(store.selectedLayer.id, { x: newX, y: newY })
-    return
-  }
-  if (isPanning) {
-    const dx = e.clientX - lastPanPosition.x
-    const dy = e.clientY - lastPanPosition.y
-    store.updateWorkspace({ pan: { x: store.workspace.pan.x + dx, y: store.workspace.pan.y + dy } })
-    lastPanPosition = { x: e.clientX, y: e.clientY }
-  }
+    handleInteractionMove(e);
 }
 
 function handleMouseUp(e) {
-  if (store.workspace.isTransforming) {
-    store.setTransformingState(false);
-    requestAnimationFrame(renderCanvas);
-  }
-
-  const mousePosition = { x: e.clientX, y: e.clientY };
-
-  if (actionStartState && currentActionName) {
-      if(store.selectedLayer) {
-        store.commitLayerStateToHistory(store.selectedLayer.id, actionStartState, currentActionName);
-      }
-      actionStartState = null;
-      currentActionName = null;
-  }
-
-  if (isWandSelecting) {
-    isWandSelecting = false;
-    if (store.isSelectionActive) {
-      store.showSelectionContextMenu(true, mousePosition);
-    }
-  }
-
-  if (isDrawingSelection) {
-    if (store.activeTool === 'rect-select') store.endSelection(mousePosition)
-    if (store.activeTool === 'lasso-select') store.endLasso(mousePosition)
-  }
-  if (isPainting || isErasing) {
-    isPainting = false;
-    isErasing = false;
-    currentStroke = [];
-  }
-  isPanning = false
-  isDraggingLayer = false
-  isTransformingLayer = false
-  isDrawingSelection = false
-  isWandSelecting = false;
-  document.body.style.cursor = 'default'
-
-  const cursorMap = {
-    'rect-select': 'crosshair',
-    'lasso-select': 'crosshair',
-    'magic-wand': 'crosshair',
-    brush: 'crosshair',
-    eraser: 'crosshair',
-    move: 'grab',
-  }
-  if (canvasRef.value) {
-     canvasRef.value.style.cursor = cursorMap[store.activeTool] || 'default'
-  }
+    handleInteractionEnd(e);
 }
+
+function handleTouchStart(e) {
+    e.preventDefault();
+    handleInteractionStart(e);
+}
+
+function handleTouchMove(e) {
+    e.preventDefault();
+    handleInteractionMove(e);
+}
+
+function handleTouchEnd(e) {
+    e.preventDefault();
+    handleInteractionEnd(e);
+}
+
 
     function handleWheel(e) { e.preventDefault(); if (store.workspace.viewMode === 'preview') return; const zoomIntensity = 0.1; const direction = e.deltaY < 0 ? 1 : -1; const mouse = { x: e.offsetX, y: e.offsetY }; const { pan, zoom } = store.workspace; const worldX = (mouse.x - pan.x) / zoom; const worldY = (mouse.y - pan.y) / zoom; const newZoom = zoom * (1 + direction * zoomIntensity); const saneZoom = Math.max(0.02, Math.min(newZoom, 10)); const newPanX = mouse.x - worldX * saneZoom; const newPanY = mouse.y - worldY * saneZoom; store.updateWorkspace({ zoom: saneZoom, pan: { x: newPanX, y: newPanY } }); }
     function screenToWorkspaceCoords(screenCoords) { const { pan, zoom } = store.workspace; return { x: (screenCoords.x - pan.x) / zoom, y: (screenCoords.y - pan.y) / zoom }; }

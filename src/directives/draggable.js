@@ -19,29 +19,33 @@ export const draggable = {
 
     const onMouseDown = (e) => {
       if (e.target.closest('button, input, .resize-handle')) return;
-      if (e.button !== 0) return;
+      if (e.type === 'mousedown' && e.button !== 0) return;
 
       isDragging = true;
+      const event = e.touches ? e.touches[0] : e;
 
-      // Guarda a posição inicial do painel e do mouse no momento do clique
+
       initialTop = el.offsetTop;
       initialLeft = el.offsetLeft;
-      initialMouseX = e.clientX;
-      initialMouseY = e.clientY;
+      initialMouseX = event.clientX;
+      initialMouseY = event.clientY;
 
       document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('touchmove', onMouseMove, { passive: false });
+
       document.addEventListener('mouseup', onMouseUp, { once: true });
+      document.addEventListener('touchend', onMouseUp, { once: true });
     };
 
     const onMouseMove = (e) => {
       if (!isDragging) return;
       e.preventDefault();
 
-      // Calcula o quanto o mouse se moveu desde o clique inicial
-      const dx = e.clientX - initialMouseX;
-      const dy = e.clientY - initialMouseY;
+      const event = e.touches ? e.touches[0] : e;
 
-      // Aplica essa mesma diferença à posição inicial do painel
+      const dx = event.clientX - initialMouseX;
+      const dy = event.clientY - initialMouseY;
+
       el.style.top = `${initialTop + dy}px`;
       el.style.left = `${initialLeft + dx}px`;
     };
@@ -49,8 +53,8 @@ export const draggable = {
     const onMouseUp = () => {
       isDragging = false;
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('touchmove', onMouseMove);
 
-      // Salva a posição final no store para persistência
       store.updatePanelState(panelId, {
         position: {
           top: el.offsetTop,
@@ -60,11 +64,16 @@ export const draggable = {
     };
 
     handle.addEventListener('mousedown', onMouseDown);
+    handle.addEventListener('touchstart', onMouseDown, { passive: false });
+
 
     el.__vDraggableCleanup = () => {
       handle.removeEventListener('mousedown', onMouseDown);
+      handle.removeEventListener('touchstart', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('touchmove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchend', onMouseUp);
     };
   },
   unmounted(el) {

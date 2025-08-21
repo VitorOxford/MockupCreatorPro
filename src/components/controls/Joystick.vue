@@ -8,19 +8,26 @@ const handle = ref(null)
 const isDragging = ref(false)
 
 const startDrag = (e) => {
+  e.preventDefault();
   isDragging.value = true
   document.addEventListener('mousemove', onDrag)
+  document.addEventListener('touchmove', onDrag, { passive: false })
+
   document.addEventListener('mouseup', endDrag)
+  document.addEventListener('touchend', endDrag)
   document.addEventListener('mouseleave', endDrag)
 }
 
 const onDrag = (e) => {
   if (!isDragging.value) return
+  e.preventDefault();
+
+  const event = e.touches ? e.touches[0] : e;
   const baseRect = joystick.value.getBoundingClientRect()
   const maxDist = baseRect.width / 2
 
-  let dx = e.clientX - (baseRect.left + maxDist)
-  let dy = e.clientY - (baseRect.top + maxDist)
+  let dx = event.clientX - (baseRect.left + maxDist)
+  let dy = event.clientY - (baseRect.top + maxDist)
 
   const dist = Math.sqrt(dx * dx + dy * dy)
   if (dist > maxDist) {
@@ -30,7 +37,6 @@ const onDrag = (e) => {
 
   handle.value.style.transform = `translate(${dx}px, ${dy}px)`
 
-  // Emite o movimento normalizado (entre -1 e 1)
   emit('move', { dx: dx / maxDist, dy: dy / maxDist })
 }
 
@@ -39,14 +45,16 @@ const endDrag = (e) => {
   isDragging.value = false
   handle.value.style.transform = `translate(0, 0)`
   document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('touchmove', onDrag)
   document.removeEventListener('mouseup', endDrag)
+  document.removeEventListener('touchend', endDrag)
   document.removeEventListener('mouseleave', endDrag)
 }
 </script>
 
 <template>
   <div class="joystick-base" ref="joystick">
-    <div class="joystick-handle" ref="handle" @mousedown.prevent="startDrag"></div>
+    <div class="joystick-handle" ref="handle" @mousedown.prevent="startDrag" @touchstart.prevent="startDrag"></div>
   </div>
 </template>
 
