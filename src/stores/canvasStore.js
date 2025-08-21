@@ -34,6 +34,7 @@ export const useCanvasStore = defineStore('canvas', () => {
   const globalHistoryStore = useHistoryStore();
 
   const layers = ref([])
+  const folders = ref([])
   const selectedLayerId = ref(null)
   const activeTool = ref('move')
   const primaryColor = ref('#000000')
@@ -41,6 +42,7 @@ export const useCanvasStore = defineStore('canvas', () => {
   const brush = reactive({ size: 20, opacity: 1, hardness: 0.9 });
   const eraser = reactive({ size: 40, opacity: 1 });
   const copiedSelection = ref(null);
+  const copiedFolder = ref(null); // Para copiar/colar pastas
 
   const workspace = reactive({
     pan: { x: 0, y: 0 },
@@ -83,7 +85,8 @@ export const useCanvasStore = defineStore('canvas', () => {
     },
     isContextMenuVisible: false,
     contextMenuPosition: { x: 0, y: 0 },
-    contextMenuTargetLayerId: null,
+    contextMenuTargetId: null, // ID genérico para camada ou pasta
+    contextMenuIsFolder: false, // Flag para diferenciar
     isSelectionContextMenuVisible: false,
     selectionContextMenuPosition: { x: 0, y: 0 },
     isResizeModalVisible: false,
@@ -515,25 +518,23 @@ export const useCanvasStore = defineStore('canvas', () => {
     workspace.document.height = newHeightPx;
   }
 
-    function showContextMenu(visible, position = { x: 0, y: 0 }, layerId = null) {
+    function showContextMenu(visible, position = { x: 0, y: 0 }, targetId = null, isFolder = false) {
       const menuWidth = 260;
-      const menuHeight = 400; // Estimativa da altura máxima do menu
+      const menuHeight = 400; // Estimativa
       const { innerWidth, innerHeight } = window;
 
       let x = position.x;
       let y = position.y;
 
-      if (x + menuWidth > innerWidth) {
-        x = innerWidth - menuWidth - 5;
-      }
-      if (y + menuHeight > innerHeight) {
-        y = innerHeight - menuHeight - 5;
-      }
+      if (x + menuWidth > innerWidth) x = innerWidth - menuWidth - 5;
+      if (y + menuHeight > innerHeight) y = innerHeight - menuHeight - 5;
 
       workspace.isContextMenuVisible = visible;
       workspace.contextMenuPosition = { x, y };
-      workspace.contextMenuTargetLayerId = layerId;
-      if (visible && layerId) selectLayer(layerId);
+      workspace.contextMenuTargetId = targetId;
+      workspace.contextMenuIsFolder = isFolder;
+
+      if (visible && targetId && !isFolder) selectLayer(targetId);
     }
     function showSelectionContextMenu(visible, position = { x: 0, y: 0 }) { workspace.isSelectionContextMenuVisible = visible; workspace.selectionContextMenuPosition = position; }
     function showResizeModal(visible) { workspace.isResizeModalVisible = visible; }
@@ -570,7 +571,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     function rotateLayer(degrees) { if (!selectedLayer.value) return; const originalState = getClonedLayerState(selectedLayer.value); const newRotation = selectedLayer.value.rotation + (degrees * Math.PI) / 180; updateLayerProperties(selectedLayer.value.id, { rotation: newRotation }); layerHistoryStore.addLayerState(selectedLayer.value.id, originalState, 'Rodar 90°'); updateLayerThumbnail(selectedLayer.value); }
     function duplicateLayer(layerId) {
       const sourceLayer = layers.value.find((l) => l.id === layerId);
-      if (!sourceLayer) return;
+      if (!sourceLayer) return null;
 
       globalHistoryStore.addState(getClonedGlobalState(), 'Duplicar Camada');
 
@@ -600,6 +601,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
       layerHistoryStore.addLayerState(newLayerData.id, getClonedLayerState(newLayerData), 'Criação da Camada');
       selectLayer(newLayerData.id);
+      return newLayerData;
     }
 
   async function mergeDown(layerId) {
@@ -864,9 +866,109 @@ export const useCanvasStore = defineStore('canvas', () => {
     link.click();
   }
 
+  // --- Funções para Pastas ---
+  function createFolder(name = 'Nova Pasta') {
+    const newFolder = reactive({
+      id: uuidv4(),
+      name,
+      type: 'folder',
+      isOpen: true,
+      isLocked: false,
+      layerIds: [],
+    });
+    folders.value.push(newFolder);
+    globalHistoryStore.addState(getClonedGlobalState(), 'Criar Pasta');
+    return newFolder;
+  }
+
+  function renameFolder(folderId, newName) {
+    const folder = folders.value.find(f => f.id === folderId);
+    if (folder && newName) {
+      folder.name = newName;
+    }
+  }
+
+  function deleteFolder(folderId) {
+    const folderIndex = folders.value.findIndex(f => f.id === folderId);
+    if (folderIndex > -1) {
+      const folder = folders.value[folderIndex];
+      // Move as layers de volta para a raiz
+      folder.layerIds.forEach(layerId => {
+        const layer = layers.value.find(l => l.id === layerId);
+        if (layer) layer.folderId = null;
+      });
+      folders.value.splice(folderIndex, 1);
+      globalHistoryStore.addState(getClonedGlobalState(), 'Excluir Pasta');
+    }
+  }
+
+  function toggleFolderLock(folderId) {
+    const folder = folders.value.find(f => f.id === folderId);
+    if (folder) {
+      folder.isLocked = !folder.isLocked;
+    }
+  }
+
+  function toggleFolderVisibility(folderId) {
+    const folder = folders.value.find(f => f.id === folderId);
+    if (folder) {
+        // Verifica se a maioria das camadas está visível para decidir se deve ocultar ou mostrar
+        const visibleLayers = folder.layerIds.map(id => layers.value.find(l => l.id === id)).filter(l => l && l.visible);
+        const shouldBeVisible = visibleLayers.length < folder.layerIds.length / 2;
+        folder.layerIds.forEach(layerId => {
+            updateLayerProperties(layerId, { visible: shouldBeVisible });
+        });
+    }
+}
+
+
+  function moveLayerToFolder(layerId, folderId) {
+    const layer = layers.value.find(l => l.id === layerId);
+    if (!layer) return;
+
+    // Remove da pasta antiga, se houver
+    if (layer.folderId) {
+        const oldFolder = folders.value.find(f => f.id === layer.folderId);
+        if (oldFolder) {
+            oldFolder.layerIds = oldFolder.layerIds.filter(id => id !== layerId);
+        }
+    }
+
+    layer.folderId = folderId;
+
+    // Adiciona à nova pasta, se houver
+    if (folderId) {
+        const targetFolder = folders.value.find(f => f.id === folderId);
+        if (targetFolder && !targetFolder.layerIds.includes(layerId)) {
+            targetFolder.layerIds.push(layerId);
+        }
+    }
+
+    globalHistoryStore.addState(getClonedGlobalState(), 'Mover Camada para Pasta');
+  }
+
+  function duplicateFolder(folderId) {
+    const sourceFolder = folders.value.find(f => f.id === folderId);
+    if (!sourceFolder) return;
+
+    const newFolder = createFolder(`${sourceFolder.name} Cópia`);
+
+    // Duplica as camadas na ordem correta
+    const layersToDuplicate = sourceFolder.layerIds.map(id => layers.value.find(l => l.id === id)).filter(Boolean);
+
+    layersToDuplicate.forEach(layer => {
+        // A função duplicateLayer já adiciona a nova camada ao array principal 'layers'
+        const newLayer = duplicateLayer(layer.id);
+        if (newLayer) {
+            // Apenas atualiza a folderId da camada recém-criada
+            moveLayerToFolder(newLayer.id, newFolder.id);
+        }
+    });
+}
+
 
   return {
-    layers, selectedLayerId, selectedLayer, activeTool, workspace, mockupLayer, rulerSource, isSelectionActive, copiedSelection, primaryColor, brush, eraser,
+    layers, folders, selectedLayerId, selectedLayer, activeTool, workspace, mockupLayer, rulerSource, isSelectionActive, copiedSelection, primaryColor, brush, eraser,
     setRulerUnit, togglePreviewInteractivity, setPreviewZoom, startLasso, updateLasso, endLasso, addLayer, addLocalLayer, selectLayer, updateLayerProperties,
     setActiveTool, updateWorkspace, toggleViewMode, deleteLayer, bringForward, sendBackward, moveLayer, frameLayer, startSelection, updateSelection, endSelection,
     clearSelection, startLayerResize, updateLayerResize, startLayerRotation, updateLayerRotation, showContextMenu, showSelectionContextMenu, showResizeModal,
@@ -878,7 +980,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     setTransformingState,
     togglePanel, updatePanelState, getPanelState,
     zoomIn, zoomOut, zoomToFit,
-    createBlankCanvas, // <-- Exportado
-    exportLayer,       // <-- Exportado
+    createBlankCanvas,
+    exportLayer,
+    // Funções de Pastas
+    createFolder, renameFolder, deleteFolder, toggleFolderLock, moveLayerToFolder, toggleFolderVisibility, duplicateFolder
   }
 })

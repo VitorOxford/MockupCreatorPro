@@ -10,23 +10,35 @@ const layerHistoryStore = useLayerHistoryStore()
 
 const showZoomSlider = ref(false)
 
-const targetLayerId = computed(() => store.workspace.contextMenuTargetLayerId);
-const targetLayer = computed(() => store.layers.find(l => l.id === targetLayerId.value));
+const targetId = computed(() => store.workspace.contextMenuTargetId);
+const isFolderTarget = computed(() => store.workspace.contextMenuIsFolder);
+
+const targetLayer = computed(() => {
+    if (isFolderTarget.value) return null;
+    return store.layers.find(l => l.id === targetId.value)
+});
+const targetFolder = computed(() => {
+    if (!isFolderTarget.value) return null;
+    return store.folders.find(f => f.id === targetId.value)
+});
+
 
 const canMergeDown = computed(() => {
-    if (!targetLayerId.value) return false;
-    const index = store.layers.findIndex(l => l.id === targetLayerId.value);
-    return index > 0;
+    if (!targetLayer.value) return false;
+    const index = store.layers.findIndex(l => l.id === targetId.value);
+    // Não pode mesclar se for a primeira camada, ou se a camada abaixo estiver numa pasta diferente
+    const layerBelow = store.layers[index - 1];
+    return index > 0 && layerBelow && layerBelow.folderId === targetLayer.value.folderId;
 });
 
 const canUndo = computed(() => {
-  if (!targetLayerId.value) return false
-  return layerHistoryStore.canUndo(targetLayerId.value)
+  if (!targetLayer.value) return false
+  return layerHistoryStore.canUndo(targetId.value)
 })
 
 const canRedo = computed(() => {
-  if (!targetLayerId.value) return false
-  return layerHistoryStore.canRedo(targetLayerId.value)
+  if (!targetLayer.value) return false
+  return layerHistoryStore.canRedo(targetId.value)
 })
 
 const zoomLevel = computed({
@@ -75,43 +87,75 @@ function onClick(action) {
             </div>
         </div>
         <template v-else>
-            <div class="menu-section">
-                <div class="menu-item" @click="showZoomSlider = true">
-                    <span class="icon">➕</span>
-                    <span class="text">Aproximar/Afastar Zoom</span>
-                    <span class="shortcut">Ctrl +/-</span>
+            <template v-if="isFolderTarget && targetFolder">
+                 <div class="menu-section">
+                    <div class="menu-item" @click="onClick(() => store.renameFolder(targetId, prompt('Novo nome:', targetFolder.name) || targetFolder.name))">
+                        <span class="icon">✏️</span>
+                        <span class="text">Renomear</span>
+                    </div>
                 </div>
-                <div class="menu-item" @click="onClick(() => store.zoomToFit())">
-                    <span class="icon">🎯</span>
-                    <span class="text">Ajustar à Tela</span>
-                    <span class="shortcut">Ctrl 0</span>
+                <div class="menu-divider"></div>
+                <div class="menu-section">
+                     <div class="menu-item" @click="onClick(() => store.toggleFolderLock(targetId))">
+                        <span class="icon">{{ targetFolder.isLocked ? '🔓' : '🔒' }}</span>
+                        <span class="text">{{ targetFolder.isLocked ? 'Desbloquear' : 'Bloquear' }}</span>
+                    </div>
+                    <div class="menu-item" @click="onClick(() => store.toggleFolderVisibility(targetId))">
+                        <span class="icon">👁️</span>
+                        <span class="text">Ocultar/Mostrar Conteúdo</span>
+                    </div>
                 </div>
-            </div>
-
-            <template v-if="targetLayer">
+                 <div class="menu-divider"></div>
+                <div class="menu-section">
+                    <div class="menu-item" @click="onClick(() => store.duplicateFolder(targetId))">
+                        <span class="icon">📋</span>
+                        <span class="text">Duplicar Pasta</span>
+                    </div>
+                    </div>
+                 <div class="menu-divider"></div>
+                <div class="menu-section">
+                    <div class="menu-item danger" @click="onClick(() => store.deleteFolder(targetId))">
+                        <span class="icon">🗑️</span>
+                        <span class="text">Apagar Pasta</span>
+                    </div>
+                </div>
+            </template>
+            <template v-if="!isFolderTarget && targetLayer">
+                <div class="menu-section">
+                    <div class="menu-item" @click="showZoomSlider = true">
+                        <span class="icon">➕</span>
+                        <span class="text">Aproximar/Afastar Zoom</span>
+                        <span class="shortcut">Ctrl +/-</span>
+                    </div>
+                    <div class="menu-item" @click="onClick(() => store.zoomToFit())">
+                        <span class="icon">🎯</span>
+                        <span class="text">Ajustar à Tela</span>
+                        <span class="shortcut">Ctrl 0</span>
+                    </div>
+                </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
                      <div class="menu-item history-controls">
-                        <button :disabled="!canUndo" @click="onClick(() => layerHistoryStore.undo(targetLayerId))" title="Desfazer">
+                        <button :disabled="!canUndo" @click="onClick(() => layerHistoryStore.undo(targetId))" title="Desfazer">
                             <svg width="20" height="20" viewBox="0 0 24 24"><path d="M21 7v6h-6" /><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" /></svg>
                         </button>
                          <span class="text">Histórico da Camada</span>
-                        <button :disabled="!canRedo" @click="onClick(() => layerHistoryStore.redo(targetLayerId))" title="Refazer">
+                        <button :disabled="!canRedo" @click="onClick(() => layerHistoryStore.redo(targetId))" title="Refazer">
                             <svg width="20" height="20" viewBox="0 0 24 24"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
                         </button>
                     </div>
-                    <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
+                    <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetId))">
                         <span class="icon">📜</span>
                         <span class="text">Ver Histórico Detalhado...</span>
                     </div>
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
-                    <div class="menu-item" @click="onClick(() => store.duplicateLayer(targetLayerId))">
+                    <div class="menu-item" @click="onClick(() => store.duplicateLayer(targetId))">
                         <span class="icon">📋</span>
                         <span class="text">Duplicar Camada</span>
                     </div>
-                    <div class="menu-item" :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(targetLayerId))">
+                    <div class="menu-item" :class="{ disabled: !canMergeDown }" @click="canMergeDown && onClick(() => store.mergeDown(targetId))">
                         <span class="icon">📥</span>
                         <span class="text">Mesclar para Baixo</span>
                     </div>
@@ -140,18 +184,18 @@ function onClick(action) {
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
-                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetLayerId, 'png'))">
+                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetId, 'png'))">
                         <span class="icon">🖼️</span>
                         <span class="text">Exportar como PNG</span>
                     </div>
-                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetLayerId, 'jpeg'))">
+                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetId, 'jpeg'))">
                         <span class="icon">🖼️</span>
                         <span class="text">Exportar como JPG</span>
                     </div>
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
-                    <div class="menu-item danger" @click="onClick(() => store.deleteLayer(targetLayerId))">
+                    <div class="menu-item danger" @click="onClick(() => store.deleteLayer(targetId))">
                         <span class="icon">🗑️</span>
                         <span class="text">Apagar Camada</span>
                     </div>

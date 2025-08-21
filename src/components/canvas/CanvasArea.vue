@@ -12,6 +12,8 @@ const canvasRef = ref(null)
 const wrapperRef = ref(null)
 const wrapperDimensions = ref({ width: 0, height: 0 })
 let ctx = null
+let resizeObserver = null;
+
 
 const offscreenCanvas = document.createElement('canvas')
 const offscreenCtx = offscreenCanvas.getContext('2d')
@@ -53,13 +55,6 @@ function renderEditMode(canvas) {
   ctx.save()
   ctx.translate(store.workspace.pan.x, store.workspace.pan.y)
   ctx.scale(store.workspace.zoom, store.workspace.zoom)
-
-  // --- CORREÇÃO APLICADA ---
-  // As 4 linhas abaixo que desenhavam o fundo branco e a borda foram comentadas.
-  // ctx.fillStyle = 'white'
-  // ctx.fillRect(0, 0, store.workspace.document.width, store.workspace.document.height)
-  // ctx.strokeStyle = '#ccc'
-  // ctx.strokeRect(0, 0, store.workspace.document.width, store.workspace.document.height)
 
   for (const layer of store.layers) {
     if (!layer.visible || !layer.image) continue
@@ -173,9 +168,15 @@ function renderPreviewMode(canvas) {
 
 function initCanvas() {
   ctx = canvasRef.value.getContext('2d')
-  resizeCanvas()
   setupEventListeners()
-  renderCanvas()
+
+  // Usa o ResizeObserver para reagir a mudanças de tamanho do layout
+  resizeObserver = new ResizeObserver(() => {
+    resizeCanvas();
+  });
+  resizeObserver.observe(wrapperRef.value);
+
+  resizeCanvas(); // Chamada inicial
 }
 
 function resizeCanvas() {
@@ -190,7 +191,6 @@ function resizeCanvas() {
 
 function setupEventListeners() {
   const canvas = canvasRef.value
-  window.addEventListener('resize', resizeCanvas)
   canvas.addEventListener('mousedown', handleMouseDown)
   document.addEventListener('mousemove', handleMouseMove)
   document.addEventListener('mouseup', handleMouseUp)
@@ -200,7 +200,9 @@ function setupEventListeners() {
 }
 
 function cleanupEventListeners() {
-  window.removeEventListener('resize', resizeCanvas)
+    if (resizeObserver && wrapperRef.value) {
+        resizeObserver.unobserve(wrapperRef.value);
+    }
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
   document.removeEventListener('mouseleave', handleMouseUp)
@@ -237,7 +239,7 @@ function handleContextMenu(e) {
   const mouse = { x: e.offsetX, y: e.offsetY }
   const clickedLayer = getLayerAtPosition(mouse)
   if (clickedLayer) {
-    store.showContextMenu(true, { x: e.clientX, y: e.clientY }, clickedLayer.id)
+    store.showContextMenu(true, { x: e.clientX, y: e.clientY }, clickedLayer.id, false)
   }
 }
 
@@ -250,12 +252,10 @@ function handleMouseDown(e) {
   const worldMouse = screenToWorkspaceCoords(mouse);
   const clickedLayer = getLayerAtPosition(mouse);
 
-  // Define a camada clicada como a selecionada ANTES de calcular as coordenadas da ferramenta
   if (clickedLayer && store.selectedLayerId !== clickedLayer.id) {
     store.selectLayer(clickedLayer.id);
   }
 
-  // Recalcula as coordenadas da camada APÓS a seleção ter sido atualizada
   const layerCoords = store.selectedLayer ? screenToLayerCoords(mouse, store.selectedLayer) : null;
 
 
@@ -312,7 +312,6 @@ function handleMouseDown(e) {
         store.setTransformingState(true);
         actionStartState = store.getClonedLayerState(clickedLayer);
         currentActionName = 'Mover';
-        // Calcula o offset do drag em relação ao centro da camada
         const worldMouse = screenToWorkspaceCoords(mouse);
         dragStartOffset = { x: worldMouse.x - clickedLayer.x, y: worldMouse.y - clickedLayer.y };
       } else {
@@ -442,39 +441,24 @@ function handleMouseUp(e) {
 
     function handleWheel(e) { e.preventDefault(); if (store.workspace.viewMode === 'preview') return; const zoomIntensity = 0.1; const direction = e.deltaY < 0 ? 1 : -1; const mouse = { x: e.offsetX, y: e.offsetY }; const { pan, zoom } = store.workspace; const worldX = (mouse.x - pan.x) / zoom; const worldY = (mouse.y - pan.y) / zoom; const newZoom = zoom * (1 + direction * zoomIntensity); const saneZoom = Math.max(0.02, Math.min(newZoom, 10)); const newPanX = mouse.x - worldX * saneZoom; const newPanY = mouse.y - worldY * saneZoom; store.updateWorkspace({ zoom: saneZoom, pan: { x: newPanX, y: newPanY } }); }
     function screenToWorkspaceCoords(screenCoords) { const { pan, zoom } = store.workspace; return { x: (screenCoords.x - pan.x) / zoom, y: (screenCoords.y - pan.y) / zoom }; }
-
-    // --- FUNÇÃO DE COORDENADAS CORRIGIDA ---
     function screenToLayerCoords(screenCoords, layer) {
         const { pan, zoom } = store.workspace;
         const { x: layerX, y: layerY, scale, rotation, metadata, adjustments } = layer;
         const { originalWidth, originalHeight } = metadata;
-
-        // 1. Converte as coordenadas da tela para o espaço do "mundo" (canvas)
         const worldX = (screenCoords.x - pan.x) / zoom;
         const worldY = (screenCoords.y - pan.y) / zoom;
-
-        // 2. Calcula a distância do ponto no mundo ao centro da camada
         const dx = worldX - layerX;
         const dy = worldY - layerY;
-
-        // 3. Desfaz a rotação da camada
         const cos = Math.cos(-rotation);
         const sin = Math.sin(-rotation);
         const rotatedX = dx * cos - dy * sin;
         const rotatedY = dx * sin + dy * cos;
-
-        // 4. Desfaz a escala da camada
         const unscaledX = rotatedX / scale;
         const unscaledY = rotatedY / scale;
-
-        // 5. Desfaz o flip (se houver)
         const scaleFlipX = adjustments.flipH ? -1 : 1;
         const scaleFlipY = adjustments.flipV ? -1 : 1;
         const unscaledFlippedX = unscaledX / scaleFlipX;
         const unscaledFlippedY = unscaledY / scaleFlipY;
-
-        // 6. Translada a coordenada para a origem (0,0) da imagem (canto superior esquerdo)
-        // A origem da renderização é o centro, então adicionamos metade da largura/altura originais.
         return {
             x: unscaledFlippedX + originalWidth / 2,
             y: unscaledFlippedY + originalHeight / 2,
@@ -483,7 +467,6 @@ function handleMouseUp(e) {
 
     function getLayerScreenCenter(layer) { const { pan, zoom } = store.workspace; return { x: layer.x * zoom + pan.x, y: layer.y * zoom + pan.y }; }
 
-    // --- FUNÇÃO DE DETECÇÃO DE CAMADA CORRIGIDA ---
     function getLayerAtPosition(screenCoords) {
       for (let i = store.layers.length - 1; i >= 0; i--) {
         const layer = store.layers[i];
@@ -491,7 +474,6 @@ function handleMouseUp(e) {
 
         const { x, y } = screenToLayerCoords(screenCoords, layer);
 
-        // Verifica se o ponto (x,y) está dentro dos limites da imagem original
         if (x >= 0 && x <= layer.metadata.originalWidth && y >= 0 && y <= layer.metadata.originalHeight) {
           return layer;
         }

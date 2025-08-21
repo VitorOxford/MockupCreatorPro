@@ -17,4 +17,12 @@ app.use(router)
 app.directive('draggable', draggable)
 app.directive('resizable', resizable) // <-- Registre a nova diretiva
 
+// Diretiva para focar em um elemento
+app.directive('focus', {
+  mounted(el) {
+    el.focus()
+  }
+})
+
+
 app.mount('#app')
