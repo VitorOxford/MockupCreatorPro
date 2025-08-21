@@ -7,12 +7,20 @@ const store = useCanvasStore()
 const adjustmentsStore = useImageAdjustmentsStore()
 const activeMenu = ref(null)
 
+// --- CORREÇÃO ADICIONADA ---
+// Emit para notificar o componente pai que o modal de novo projeto deve ser aberto
+const emit = defineEmits(['open-new-project-modal'])
+
 const isLassoSelectionActive = computed(() => store.workspace.lasso.points.length > 2)
 
 const menus = [
   {
     name: 'Ficheiro',
     items: [
+      // --- CORREÇÃO ADICIONADA ---
+      // Novo item de menu que chama a ação de emitir o evento
+      { name: 'Novo Projeto...', action: () => emit('open-new-project-modal') },
+      { type: 'divider' },
       { name: 'Exportar...', action: () => alert('Exportar!') }
     ]
   },
@@ -87,6 +95,7 @@ function handleItemClick(item) {
     activeMenu.value = null
     return
   }
+  // A ação (incluindo o emit) é executada aqui
   item.action()
   activeMenu.value = null
 }

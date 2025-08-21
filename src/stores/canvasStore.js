@@ -55,8 +55,6 @@ export const useCanvasStore = defineStore('canvas', () => {
     isTransforming: false,
     panels: {
         toolOptions: { isVisible: false, isPinned: false, position: { top: 80, left: 72 }, size: { width: 280, height: 'auto' } },
-        // --- CORREÇÃO AQUI ---
-        // Posição inicial ajustada para ser visível dentro do container.
         layerHistory: { isVisible: false, isPinned: false, position: { top: 120, left: 400 }, size: { width: 320, height: 450 } },
         globalHistory: { isVisible: false, isPinned: false, position: { top: 160, left: 450 }, size: { width: 320, height: 450 } },
     },
@@ -719,7 +717,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             originalHeight: selectionData.height,
           },
           initialPosition: center,
-          initialScale: selectedLayer.value.scale, // <-- **A CORREÇÃO PRINCIPAL**
+          initialScale: selectedLayer.value.scale,
         });
       }
       clearSelection();
@@ -789,6 +787,83 @@ export const useCanvasStore = defineStore('canvas', () => {
     workspace.isTransforming = isTransforming;
   }
 
+  function createBlankCanvas({ name, width, height, unit, dpi }) {
+    layers.value = [];
+    selectedLayerId.value = null;
+    globalHistoryStore.clearHistory();
+
+    let widthInPx = width;
+    let heightInPx = height;
+    const pxPerCm = dpi / 2.54;
+    const pxPerIn = dpi;
+
+    if (unit === 'cm') {
+      widthInPx = Math.round(width * pxPerCm);
+      heightInPx = Math.round(height * pxPerCm);
+    } else if (unit === 'in') {
+      widthInPx = Math.round(width * pxPerIn);
+      heightInPx = Math.round(height * pxPerIn);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = widthInPx;
+    canvas.height = heightInPx;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, widthInPx, heightInPx);
+
+    processAndAddLayer({
+      name: name || "Fundo",
+      type: 'mockup',
+      imageUrl: canvas.toDataURL(),
+      metadata: {
+        dpi: dpi,
+        originalWidth: widthInPx,
+        originalHeight: heightInPx,
+      },
+    });
+  }
+
+  function exportLayer(layerId, format = 'png', quality = 0.95) {
+    const layer = layers.value.find((l) => l.id === layerId);
+    if (!layer || !layer.image) {
+      alert('Camada não encontrada ou vazia.');
+      return;
+    }
+
+    const imageToExport = layer.fullResImage || layer.image;
+
+    const finalWidth = Math.round(layer.metadata.originalWidth * layer.scale);
+    const finalHeight = Math.round(layer.metadata.originalHeight * layer.scale);
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = finalWidth;
+    exportCanvas.height = finalHeight;
+    const ctx = exportCanvas.getContext('2d');
+
+    const adj = layer.adjustments;
+    ctx.filter = [
+      `grayscale(${adj.grayscale || 0}%)`, `sepia(${adj.sepia || 0}%)`,
+      `saturate(${adj.saturate || 100}%)`, `contrast(${adj.contrast || 100}%)`,
+      `brightness(${adj.brightness || 100}%)`, `invert(${adj.invert || 0}%)`
+    ].join(' ');
+
+    ctx.translate(finalWidth / 2, finalHeight / 2);
+    ctx.rotate(layer.rotation);
+    const scaleX = adj.flipH ? -1 : 1;
+    const scaleY = adj.flipV ? -1 : 1;
+    ctx.scale(scaleX, scaleY);
+
+    ctx.drawImage(imageToExport, -finalWidth / 2, -finalHeight / 2, finalWidth, finalHeight);
+
+    const mimeType = `image/${format}`;
+    const dataUrl = exportCanvas.toDataURL(mimeType, quality);
+    const link = document.createElement('a');
+    link.download = `${layer.name}.${format}`;
+    link.href = dataUrl;
+    link.click();
+  }
+
 
   return {
     layers, selectedLayerId, selectedLayer, activeTool, workspace, mockupLayer, rulerSource, isSelectionActive, copiedSelection, primaryColor, brush, eraser,
@@ -803,5 +878,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     setTransformingState,
     togglePanel, updatePanelState, getPanelState,
     zoomIn, zoomOut, zoomToFit,
+    createBlankCanvas, // <-- Exportado
+    exportLayer,       // <-- Exportado
   }
 })

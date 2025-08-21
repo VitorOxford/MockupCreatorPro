@@ -54,10 +54,12 @@ function renderEditMode(canvas) {
   ctx.translate(store.workspace.pan.x, store.workspace.pan.y)
   ctx.scale(store.workspace.zoom, store.workspace.zoom)
 
-  ctx.fillStyle = 'white'
-  ctx.fillRect(0, 0, store.workspace.document.width, store.workspace.document.height)
-  ctx.strokeStyle = '#ccc'
-  ctx.strokeRect(0, 0, store.workspace.document.width, store.workspace.document.height)
+  // --- CORREÇÃO APLICADA ---
+  // As 4 linhas abaixo que desenhavam o fundo branco e a borda foram comentadas.
+  // ctx.fillStyle = 'white'
+  // ctx.fillRect(0, 0, store.workspace.document.width, store.workspace.document.height)
+  // ctx.strokeStyle = '#ccc'
+  // ctx.strokeRect(0, 0, store.workspace.document.width, store.workspace.document.height)
 
   for (const layer of store.layers) {
     if (!layer.visible || !layer.image) continue

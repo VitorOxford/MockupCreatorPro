@@ -5,6 +5,8 @@ import { ref } from 'vue'
 const props = defineProps({
   isVisible: Boolean,
 })
+// --- CORREÇÃO APLICADA ---
+// Removido 'open-new-project-modal' dos emits
 const emit = defineEmits(['close'])
 
 const store = useCanvasStore()
@@ -16,10 +18,6 @@ function handleFile(file, type) {
     alert('Por favor, selecione um ficheiro de imagem.')
     return
   }
-
-  // --- CORREÇÃO DE PERFORMANCE ---
-  // Passa o objeto File diretamente para o store, que usará o Web Worker.
-  // Não é mais necessário criar um URL de objeto aqui.
   store.addLocalLayer(file, type)
   emit('close')
 }
@@ -44,6 +42,7 @@ function onFileSelect(e, type) {
   <div v-if="isVisible" class="modal-overlay" @click.self="emit('close')">
     <div class="modal-content">
       <h3 class="modal-title">Carregar Ficheiros</h3>
+
       <div class="drop-zones">
         <div
           class="drop-zone"
@@ -133,7 +132,7 @@ function onFileSelect(e, type) {
 }
 .drop-zone.drag-over {
   border-color: var(--c-primary);
-  background-color: #e6f5ff; /* Um azul muito claro */
+  background-color: #e6f5ff;
 }
 .drop-zone p {
   font-size: var(--fs-base);

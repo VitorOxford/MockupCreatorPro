@@ -1,7 +1,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useCanvasStore } from '@/stores/canvasStore'
-import UploadModal from '@/components/modals/UploadModal.vue'
 
 const props = defineProps({
   mode: {
@@ -11,13 +10,13 @@ const props = defineProps({
 })
 
 const store = useCanvasStore()
-const emit = defineEmits(['show-controls'])
-const isUploadModalVisible = ref(false)
+const emit = defineEmits(['show-controls', 'show-upload-modal']) // <-- CORREÇÃO: Adicionado o novo emit
 const toolsGridRef = ref(null)
 
 const activeToolDrawer = ref(null)
 const isDrawerPersistent = ref(false)
 
+// ... (seu array 'editTools' e 'previewTools' permanecem os mesmos)
 const editTools = [
   {
     id: 'move',
@@ -150,6 +149,7 @@ const tools = computed(() => {
   return props.mode === 'preview' ? previewTools.value : editTools
 })
 
+
 function handleToolClick(tool) {
   if (tool.isGroup) {
     if (activeToolDrawer.value === tool.id && isDrawerPersistent.value) {
@@ -181,8 +181,9 @@ function handleToolClick(tool) {
     else return
   }
 
+  // --- CORREÇÃO: Emite um evento em vez de controlar o modal diretamente ---
   if (tool.id === 'upload') {
-    isUploadModalVisible.value = true
+    emit('show-upload-modal');
   } else {
     store.setActiveTool(tool.id)
   }
@@ -192,6 +193,7 @@ function handleToolClick(tool) {
   }
 }
 
+// ... (resto do seu script, como handleMouseEnter, handleMouseLeave, etc. permanecem os mesmos)
 function handleMouseEnter(tool) {
   if (tool.isGroup && !isDrawerPersistent.value) {
     activeToolDrawer.value = tool.id
@@ -319,11 +321,11 @@ function getActiveIconForGroup(group) {
         </div>
       </template>
     </div>
-    <UploadModal :is-visible="isUploadModalVisible" @close="isUploadModalVisible = false" />
-  </aside>
+    </aside>
 </template>
 
 <style scoped>
+/* Seus estilos existentes ... */
 .tools-sidebar {
   width: var(--sidebar-width);
   background-color: var(--c-surface);

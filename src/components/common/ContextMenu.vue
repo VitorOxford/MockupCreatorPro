@@ -19,7 +19,6 @@ const canMergeDown = computed(() => {
     return index > 0;
 });
 
-// --- CORREÇÃO: Adicionar computeds para reatividade do undo/redo ---
 const canUndo = computed(() => {
   if (!targetLayerId.value) return false
   return layerHistoryStore.canUndo(targetLayerId.value)
@@ -47,15 +46,8 @@ const zoomLevel = computed({
 })
 
 function onClick(action) {
-  // Adicionando um log aqui também para garantir que o clique é capturado
-  console.log(`[ContextMenu.vue] | Ação de clique disparada.`);
-
-  if(action) {
-    console.log(`[ContextMenu.vue] | Executando a ação fornecida...`);
-    action();
-  }
+  if(action) action();
   if (!showZoomSlider.value) {
-    console.log(`[ContextMenu.vue] | Fechando o menu de contexto.`);
     store.showContextMenu(false);
   }
 }
@@ -108,10 +100,10 @@ function onClick(action) {
                             <svg width="20" height="20" viewBox="0 0 24 24"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
                         </button>
                     </div>
-      <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
-    <span class="icon">📜</span>
-    <span class="text">Ver Histórico Detalhado...</span>
-</div>
+                    <div class="menu-item" @click="onClick(() => store.togglePanel('layerHistory', true, targetLayerId))">
+                        <span class="icon">📜</span>
+                        <span class="text">Ver Histórico Detalhado...</span>
+                    </div>
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
@@ -148,6 +140,17 @@ function onClick(action) {
                 </div>
                 <div class="menu-divider"></div>
                 <div class="menu-section">
+                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetLayerId, 'png'))">
+                        <span class="icon">🖼️</span>
+                        <span class="text">Exportar como PNG</span>
+                    </div>
+                    <div class="menu-item" @click="onClick(() => store.exportLayer(targetLayerId, 'jpeg'))">
+                        <span class="icon">🖼️</span>
+                        <span class="text">Exportar como JPG</span>
+                    </div>
+                </div>
+                <div class="menu-divider"></div>
+                <div class="menu-section">
                     <div class="menu-item danger" @click="onClick(() => store.deleteLayer(targetLayerId))">
                         <span class="icon">🗑️</span>
                         <span class="text">Apagar Camada</span>
@@ -160,6 +163,7 @@ function onClick(action) {
 </template>
 
 <style scoped>
+/* Seus estilos existentes ... */
 .context-menu-overlay {
     position: fixed;
     top: 0;
